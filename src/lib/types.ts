@@ -35,6 +35,8 @@ export interface Message {
   error?: string;
   /** Wall-clock ms the turn took (assistant messages). */
   elapsedMs?: number;
+  /** Total tokens reported by the API for this turn. */
+  tokens?: number;
 }
 
 export interface Conversation {

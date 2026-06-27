@@ -1,4 +1,5 @@
 import { useReducer, useRef, useState } from 'react';
+import { fs } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
@@ -20,6 +21,24 @@ function totalChars(messages: Message[], systemPrompt: string): number {
     if (m.toolCalls) n += JSON.stringify(m.toolCalls).length;
   }
   return n;
+}
+
+// Auto-load project instructions (AGENTS.md / CLAUDE.md) from the working dir,
+// the way codex / Claude Code do, and fold them into the system context.
+async function loadProjectContext(dir: string): Promise<string> {
+  if (!dir) return '';
+  for (const name of ['AGENTS.md', 'CLAUDE.md', '.deepseek.md']) {
+    try {
+      const p = dir.replace(/[\\/]+$/, '') + '\\' + name;
+      if (await fs.exists(p)) {
+        const c = await fs.readTextFile(p);
+        if (c.trim()) return `Project instructions (${name}):\n\n` + c.slice(0, 8000);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return '';
 }
 
 function renderTranscript(messages: Message[]): string {
@@ -199,6 +218,10 @@ export function useChat() {
 
     try {
       await maybeCompact(conv, cfg);
+      const projectCtx = await loadProjectContext(cfg.workingDir);
+      const turnCfg: Settings = projectCtx
+        ? { ...cfg, systemPrompt: [projectCtx, cfg.systemPrompt].filter((s) => s && s.trim()).join('\n\n') }
+        : cfg;
 
       for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
         if (stoppedRef.current) break;
@@ -224,7 +247,7 @@ export function useChat() {
           {
             messages: conv.messages.slice(0, -1),
             model: conv.model,
-            settings: cfg,
+            settings: turnCfg,
             tools: useTools && activeTools.length ? activeTools : undefined,
           },
           {
@@ -256,6 +279,7 @@ export function useChat() {
         asst.reasoning = result.reasoning || undefined;
         asst.toolCalls = result.toolCalls.length ? result.toolCalls : undefined;
         asst.elapsedMs = Date.now() - startedAt;
+        if (result.usage?.total_tokens) asst.tokens = result.usage.total_tokens;
         bumpNow();
         persist();
 

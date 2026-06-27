@@ -132,11 +132,6 @@ export function Composer({
     }
   };
 
-  const insertCode = () => {
-    setText((prev) => (prev.trimEnd() ? prev.trimEnd() + '\n\n' : '') + '```\n\n```\n');
-    ref.current?.focus();
-  };
-
   const toggleVoice = () => {
     if (!SpeechRec) return;
     if (listening) {
@@ -213,18 +208,6 @@ export function Composer({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     d="M10.5 5.2 6 9.7a1.6 1.6 0 0 0 2.3 2.3l4.6-4.6a3 3 0 0 0-4.3-4.3L4 7.8a4.4 4.4 0 0 0 6.2 6.2l3.8-3.8"
-                  />
-                </svg>
-              </button>
-              <button className="composer-tool" onClick={insertCode} title={t('insertCode')} disabled={disabled}>
-                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6.4 3.3c-1.2 0-1.7.5-1.7 1.7v1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1c0 1.2.5 1.7 1.7 1.7M9.6 3.3c1.2 0 1.7.5 1.7 1.7v1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1c0 1.2-.5 1.7-1.7 1.7"
                   />
                 </svg>
               </button>

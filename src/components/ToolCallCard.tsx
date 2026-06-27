@@ -6,8 +6,13 @@ import type { Message, ToolCall } from '../lib/types';
 const ICONS: Record<string, string> = {
   read_file: '📄',
   list_dir: '📁',
-  write_file: '✏️',
-  run_command: '❯_',
+  find_files: '🔎',
+  search_files: '🔎',
+  web_search: '🌐',
+  read_url: '🌐',
+  edit_file: '✎',
+  write_file: '✎',
+  run_command: '❯',
 };
 
 export function ToolCallCard({ call, result }: { call: ToolCall; result?: Message }) {
@@ -19,17 +24,18 @@ export function ToolCallCard({ call, result }: { call: ToolCall; result?: Messag
   const title = t('tool_' + call.name);
 
   return (
-    <div className={`tool-card ${isError ? 'error' : ''} ${running ? 'running' : ''}`}>
-      <button className="tool-head" onClick={() => result && setOpen((o) => !o)} disabled={running}>
-        <span className="tool-icon">{ICONS[call.name] ?? '⚙'}</span>
-        <span className="tool-title">{title}</span>
-        {detail && <code className="tool-detail">{detail}</code>}
-        <span className="tool-status">
-          {running ? <span className="dot-pulse" /> : isError ? t('statusFailed') : t('statusDone')}
-        </span>
-        {result && <span className="tool-chevron">{open ? '▾' : '▸'}</span>}
+    <div className={`tool-row ${isError ? 'error' : ''}`}>
+      <button className="tool-row-head" onClick={() => result && setOpen((o) => !o)} disabled={running}>
+        {running ? (
+          <span className="tool-row-spin" />
+        ) : (
+          <span className="tool-row-ico">{ICONS[call.name] ?? '⚙'}</span>
+        )}
+        <span className="tool-row-title">{title}</span>
+        {detail && <code className="tool-row-detail">{detail}</code>}
+        {result && <span className="tool-row-chev">{open ? '▾' : '›'}</span>}
       </button>
-      {open && result && <pre className="tool-output">{result.content}</pre>}
+      {open && result && <pre className="tool-row-out">{result.content}</pre>}
     </div>
   );
 }

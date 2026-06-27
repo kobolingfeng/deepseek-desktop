@@ -52,6 +52,12 @@ export interface StreamCallbacks {
   onToolCalls?: (toolCalls: ToolCall[]) => void;
 }
 
+export interface Usage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 export interface StreamResult {
   content: string;
   reasoning: string;
@@ -59,6 +65,7 @@ export interface StreamResult {
   finishReason: string | null;
   status: number;
   cancelled?: boolean;
+  usage?: Usage | null;
 }
 
 function parseError(raw: string, status: number): string {
@@ -87,6 +94,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     model: req.model,
     messages: toApiMessages(req.messages, req.settings.systemPrompt),
     stream: true,
+    stream_options: { include_usage: true },
   };
   if (req.model === 'deepseek-chat') body.temperature = req.settings.temperature;
   if (useTools) {
@@ -108,6 +116,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
   let isErrorStatus = false;
   let sseBuf = '';
   let rawErrBuf = '';
+  let usage: Usage | null = null;
   const toolCalls: ToolCall[] = [];
 
   function handleLine(line: string) {
@@ -121,6 +130,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     } catch {
       return;
     }
+    if (obj.usage) usage = obj.usage; // the final usage chunk has an empty choices array
     const choice = obj?.choices?.[0];
     if (!choice) return;
     const d = choice.delta || {};
@@ -177,6 +187,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
       finishReason: cancelled ? finishReason ?? 'stop' : finishReason,
       status,
       cancelled,
+      usage,
     };
   }
 
