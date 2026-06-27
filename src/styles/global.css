@@ -895,6 +895,25 @@ textarea {
   filter: brightness(1.07);
 }
 
+/* Plan-ready bar */
+.plan-bar {
+  margin: 0 var(--space-4) var(--space-2);
+  padding: 10px 12px 10px 16px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  animation: rise var(--dur-2) var(--ease-out);
+}
+.plan-bar-text {
+  font-size: var(--text-base);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+}
+
 /* Composer */
 .composer {
   padding: var(--space-3) var(--space-4) var(--space-4);

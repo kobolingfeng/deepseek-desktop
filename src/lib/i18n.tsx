@@ -57,6 +57,9 @@ const en: Dict = {
   modePlanDesc: 'Investigate and propose a plan; make no changes',
   modeLoopDesc: 'Work autonomously across steps until done',
   modeHeading: 'Agent mode',
+  planReady: 'Plan ready',
+  executePlan: 'Execute plan',
+  executePlanPrompt: 'Go ahead and implement the plan above.',
 
   allowActionTitle: 'Allow {action}?',
   allow: 'Allow',
@@ -171,6 +174,9 @@ const zh: Dict = {
   modePlanDesc: '只调研并给出计划,不做任何改动',
   modeLoopDesc: '自主连续执行,直到完成',
   modeHeading: '智能体模式',
+  planReady: '计划已就绪',
+  executePlan: '执行此计划',
+  executePlanPrompt: '请按上面的计划开始执行。',
 
   allowActionTitle: '允许{action}吗？',
   allow: '允许',

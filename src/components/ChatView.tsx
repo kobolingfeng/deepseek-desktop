@@ -52,6 +52,20 @@ export function ChatView({
   })();
   const approvalAction = pendingApproval ? t('tool_' + pendingApproval.toolCall.name) : '';
 
+  const lastVisible = visible[visible.length - 1];
+  const planReady =
+    settings.agentMode === 'plan' &&
+    !generating &&
+    !pendingApproval &&
+    !!lastVisible &&
+    lastVisible.role === 'assistant' &&
+    !!lastVisible.content;
+
+  const executePlan = () => {
+    controller.updateSettings({ agentMode: 'chat' });
+    controller.sendMessage(t('executePlanPrompt'));
+  };
+
   return (
     <div className="chat">
       {!settings.apiKey && (
@@ -102,6 +116,15 @@ export function ChatView({
               {t('allow')}
             </button>
           </div>
+        </div>
+      )}
+
+      {planReady && (
+        <div className="plan-bar">
+          <span className="plan-bar-text">📋 {t('planReady')}</span>
+          <button className="btn-approve" onClick={executePlan}>
+            {t('executePlan')} ▶
+          </button>
         </div>
       )}
 
