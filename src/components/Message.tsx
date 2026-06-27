@@ -2,10 +2,28 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
-import { clipboard } from '../api';
+import { clipboard, shell } from '../api';
 import { extractChanges, type FileChange } from '../lib/diff';
+import { showContextMenu } from '../lib/contextMenu';
 import { useI18n, type Lang } from '../lib/i18n';
+import { loadSettings } from '../lib/storage';
 import type { Message as Msg } from '../lib/types';
+
+// Resolve a (possibly relative) tool path to an absolute Windows path, and the
+// reverse — its path relative to the working dir (mirrors Markdown.tsx).
+function resolveAbs(p: string): string {
+  if (/^file:/i.test(p)) p = decodeURIComponent(p.replace(/^file:\/*/i, ''));
+  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p.replace(/\//g, '\\');
+  const wd = loadSettings().workingDir;
+  return (wd ? wd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '') : p).replace(/\//g, '\\');
+}
+function relPath(p: string): string {
+  const wd = loadSettings().workingDir;
+  if (!wd) return p.replace(/\//g, '\\');
+  const abs = resolveAbs(p);
+  const base = wd.replace(/[\\/]+$/, '').replace(/\//g, '\\');
+  return abs.toLowerCase().startsWith(base.toLowerCase() + '\\') ? abs.slice(base.length + 1) : p;
+}
 
 // Hidden from the transcript per user preference. These still execute and are
 // sent to the model — they're just not shown. Flip SHOW_REASONING / edit the set
@@ -118,13 +136,35 @@ function MessageActions({ content, meta }: { content: string; meta?: string }) {
 function EditedFileRow({ change }: { change: FileChange }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const name = change.path.split(/[\\/]/).pop();
+  const name = change.path.split(/[\\/]/).pop() || change.path;
   const hasDiff = change.diff.length > 0;
+
+  const openFile = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    shell.open(resolveAbs(change.path)).catch(() => {});
+  };
+  const fileMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const abs = resolveAbs(change.path);
+    const parent = abs.replace(/[\\/][^\\/]*$/, '') || abs;
+    showContextMenu(e.clientX, e.clientY, [
+      { label: t('ctxOpen'), onClick: () => shell.open(abs).catch(() => {}) },
+      { label: t('ctxOpenFolder'), onClick: () => shell.open(parent).catch(() => {}) },
+      { label: t('ctxReveal'), onClick: () => shell.execute('explorer.exe', ['/select,', abs]).catch(() => {}) },
+      { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(abs).catch(() => {}) },
+      { label: t('ctxCopyRelPath'), onClick: () => clipboard.writeText(relPath(change.path)).catch(() => {}) },
+      { label: t('ctxCopyFilename'), onClick: () => clipboard.writeText(name).catch(() => {}) },
+    ]);
+  };
+
   return (
     <div className={`edited-file-row ${change.ok ? '' : 'error'}`}>
-      <button className="edited-file" onClick={() => hasDiff && setOpen((o) => !o)} title={change.path}>
+      <button className="edited-file" onClick={() => hasDiff && setOpen((o) => !o)}>
         <span className="edited-file-verb">{t('editedVerb')}</span>
-        <span className="edited-file-name">{name}</span>
+        <span className="edited-file-name" title={change.path} onClick={openFile} onContextMenu={fileMenu}>
+          {name}
+        </span>
         <span className="edited-file-stat">
           <span className="diff-add">+{change.additions}</span> <span className="diff-del">-{change.deletions}</span>
         </span>

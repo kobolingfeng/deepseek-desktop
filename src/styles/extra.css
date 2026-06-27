@@ -572,3 +572,31 @@
   font-size: 11px;
   color: var(--text-tertiary);
 }
+
+/* ── Edited row: align with body text + match its size (Codex inline style) ── */
+.edited-files {
+  margin-top: var(--space-3);
+}
+.edited-file {
+  padding: 2px 0; /* left-align "改动/Edited" with the message body text */
+  gap: 6px;
+}
+.edited-file:hover {
+  background: transparent; /* the filename carries the hover highlight, not the row */
+}
+.edited-file-verb,
+.edited-file-name {
+  font-size: var(--text-md); /* same as .markdown body text */
+}
+.edited-file-name {
+  padding: 0 3px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.edited-file-name:hover {
+  text-decoration: underline;
+  background: var(--bg-hover);
+}
+.edited-file-stat {
+  font-size: var(--text-xs);
+}
