@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { Composer } from './Composer';
 import { Message } from './Message';
+import { TodoPanel } from './TodoPanel';
 import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
 import type { Message as Msg } from '../lib/types';
@@ -72,6 +73,10 @@ export function ChatView({
         <div className="apikey-banner" onClick={onOpenSettings}>
           🔑 {t('apiKeyBanner')}
         </div>
+      )}
+
+      {activeConversation?.todos && activeConversation.todos.length > 0 && (
+        <TodoPanel todos={activeConversation.todos} />
       )}
 
       <div className="messages" ref={scrollerRef} onScroll={onScroll}>

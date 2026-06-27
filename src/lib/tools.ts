@@ -12,6 +12,7 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'search_files', defaultPerm: 'allow' },
   { name: 'web_search', defaultPerm: 'allow' },
   { name: 'read_url', defaultPerm: 'allow' },
+  { name: 'update_plan', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'ask' },
   { name: 'write_file', defaultPerm: 'ask' },
   { name: 'run_command', defaultPerm: 'ask' },
@@ -151,6 +152,32 @@ export const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'update_plan',
+      description:
+        'Maintain a visible TODO checklist for a multi-step task. Call it to create or update the plan as you work: list every step with a status. Mark a step "doing" when you start it and "done" when finished. Keep it short.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todos: {
+            type: 'array',
+            description: 'The full current checklist.',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string', description: 'Step description.' },
+                status: { type: 'string', enum: ['pending', 'doing', 'done'] },
+              },
+              required: ['text', 'status'],
+            },
+          },
+        },
+        required: ['todos'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'edit_file',
       description:
         'Make a precise in-place edit by replacing an exact substring. Prefer this over write_file when changing part of an existing file. Requires user approval.',
@@ -273,6 +300,14 @@ function globToRegExp(glob: string): RegExp {
 function toRel(full: string, rootNorm: string): string {
   const f = full.replace(/\\/g, '/');
   return f.startsWith(rootNorm + '/') ? f.slice(rootNorm.length + 1) : f;
+}
+
+/** Relative file paths under the working dir, for @-mention autocomplete. */
+export async function listWorkspaceFiles(dir: string): Promise<string[]> {
+  if (!dir) return [];
+  const rootNorm = dir.replace(/\\/g, '/').replace(/\/+$/, '');
+  const files = await walkFiles(dir, 3000);
+  return files.map((f) => toRel(f.replace(/\\/g, '/'), rootNorm)).sort();
 }
 
 let _entityDecoder: HTMLTextAreaElement | null = null;
@@ -468,6 +503,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Web search', detail: a.query || '' };
     case 'read_url':
       return { title: 'Read page', detail: a.url || '' };
+    case 'update_plan':
+      return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':

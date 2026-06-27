@@ -1,5 +1,5 @@
 import { useReducer, useRef, useState } from 'react';
-import { fs } from '../api';
+import { dialog, fs } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
@@ -44,6 +44,19 @@ async function loadProjectContext(dir: string): Promise<string> {
     }
   }
   return '';
+}
+
+function conversationToMarkdown(conv: Conversation): string {
+  const out: string[] = [`# ${conv.title}`, ''];
+  for (const m of conv.messages) {
+    if (m.auto || m.compacted) continue;
+    if (m.role === 'user') out.push('## User', '', m.content, '');
+    else if (m.role === 'assistant') {
+      if (m.content) out.push('## Assistant', '', m.content, '');
+      if (m.toolCalls?.length) out.push('> tools: ' + m.toolCalls.map((t) => t.name).join(', '), '');
+    }
+  }
+  return out.join('\n');
 }
 
 function renderTranscript(messages: Message[]): string {
@@ -128,6 +141,65 @@ export function useChat() {
     bumpNow();
   }
 
+  function renameConversation(id: string, title: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (conv) {
+      conv.title = title.trim() || conv.title;
+      persist();
+      bumpNow();
+    }
+  }
+
+  function togglePin(id: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (conv) {
+      conv.pinned = !conv.pinned;
+      persist();
+      bumpNow();
+    }
+  }
+
+  function duplicateConversation(id: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (!conv) return;
+    const now = Date.now();
+    const copy: Conversation = {
+      ...conv,
+      id: newId('c'),
+      title: conv.title + ' (copy)',
+      pinned: false,
+      messages: conv.messages.map((m) => ({ ...m })),
+      createdAt: now,
+      updatedAt: now,
+    };
+    convsRef.current = [copy, ...convsRef.current];
+    setActiveId(copy.id);
+    persist();
+    bumpNow();
+  }
+
+  async function exportConversation(id: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (!conv) return;
+    try {
+      const path = await dialog.saveFile({ defaultName: conv.title.replace(/[\\/:*?"<>|]/g, '_') + '.md' });
+      if (path) await fs.writeTextFile(path, conversationToMarkdown(conv));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function clearActive() {
+    const conv = getActive();
+    if (conv) {
+      conv.messages = [];
+      conv.todos = undefined;
+      conv.updatedAt = Date.now();
+      persist();
+      bumpNow();
+    }
+  }
+
   function setModel(model: ModelId) {
     const conv = getActive();
     if (conv) {
@@ -171,10 +243,10 @@ export function useChat() {
 
   // Summarize older messages when the conversation gets long, to stay within
   // the model's context window (codex/Claude-Code-style auto-compaction).
-  async function maybeCompact(conv: Conversation, cfg: Settings) {
+  async function maybeCompact(conv: Conversation, cfg: Settings, force = false) {
     const msgs = conv.messages;
     if (msgs.length <= KEEP_RECENT_MSGS + 2) return;
-    if (totalChars(msgs, cfg.systemPrompt) < COMPACT_CHAR_THRESHOLD) return;
+    if (!force && totalChars(msgs, cfg.systemPrompt) < COMPACT_CHAR_THRESHOLD) return;
 
     let splitAt = msgs.length - KEEP_RECENT_MSGS;
     // Don't let the recent slice start with orphan tool results.
@@ -212,6 +284,17 @@ export function useChat() {
     conv.messages = [summaryMsg, ...recent];
     bumpNow();
     persist();
+  }
+
+  async function compactActive() {
+    const conv = getActive();
+    if (!conv || generating) return;
+    setGenerating(true);
+    try {
+      await maybeCompact(conv, settingsRef.current, true);
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function runTurn(conv: Conversation) {
@@ -339,7 +422,21 @@ export function useChat() {
           if (stoppedRef.current) break;
           let out = '';
           let isErr = false;
-          if (!isKnownTool(tc.name)) {
+          if (tc.name === 'update_plan') {
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              conv.todos = (Array.isArray(a.todos) ? a.todos : [])
+                .map((it: any) => ({
+                  text: String(it?.text ?? it?.step ?? '').trim(),
+                  status: it?.status === 'done' || it?.status === 'doing' ? it.status : 'pending',
+                }))
+                .filter((it: { text: string }) => it.text);
+              out = `Plan updated (${conv.todos?.length ?? 0} steps).`;
+            } catch {
+              out = 'Invalid plan payload.';
+              isErr = true;
+            }
+          } else if (!isKnownTool(tc.name)) {
             out = `Unknown tool: ${tc.name}`;
             isErr = true;
           } else {
@@ -462,6 +559,12 @@ export function useChat() {
     newConversation,
     selectConversation,
     deleteConversation,
+    renameConversation,
+    togglePin,
+    duplicateConversation,
+    exportConversation,
+    clearActive,
+    compactActive,
     setModel,
     updateSettings,
     approve: () => resolveApproval(true),

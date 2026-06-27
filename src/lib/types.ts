@@ -41,6 +41,12 @@ export interface Message {
   tokens?: number;
 }
 
+export type TodoStatus = 'pending' | 'doing' | 'done';
+export interface TodoItem {
+  text: string;
+  status: TodoStatus;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -48,6 +54,8 @@ export interface Conversation {
   messages: Message[];
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
+  todos?: TodoItem[];
 }
 
 export type ThemePref = 'system' | 'light' | 'dark';
@@ -94,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
     search_files: 'allow',
     web_search: 'allow',
     read_url: 'allow',
+    update_plan: 'allow',
     edit_file: 'ask',
     write_file: 'ask',
     run_command: 'ask',
