@@ -1272,9 +1272,33 @@ static bool crackHttpUrl(const std::string& url, URL_COMPONENTS& uc,
 }
 
 // ── HTTP streaming state (SSE) ────────────────────────
-struct HttpStream { std::atomic<bool> cancel{false}; };
+struct HttpStream {
+    std::atomic<bool> cancel{false};
+    std::mutex mtx;
+    HINTERNET hRequest{nullptr};
+};
 static std::mutex g_streamMutex;
 static std::unordered_map<int, std::shared_ptr<HttpStream>> g_streams;
+
+static HINTERNET takeHttpStreamRequest(const std::shared_ptr<HttpStream>& stream) {
+    HINTERNET toClose = nullptr;
+    {
+        std::lock_guard lk(stream->mtx);
+        toClose = stream->hRequest;
+        stream->hRequest = nullptr;
+    }
+    return toClose;
+}
+
+static void closeHttpStreamRequest(const std::shared_ptr<HttpStream>& stream) {
+    if (HINTERNET toClose = takeHttpStreamRequest(stream))
+        WinHttpCloseHandle(toClose);
+}
+
+static void cancelHttpStream(const std::shared_ptr<HttpStream>& stream) {
+    stream->cancel.store(true);
+    closeHttpStreamRequest(stream);
+}
 
 static void reg_http() {
     ipc_on("http.request", [](const json& a) -> json {
@@ -1397,9 +1421,13 @@ static void reg_http() {
         }
 
         std::thread([id, url, method, body, allHeaders, stream]() {
-            auto post = [](json* p) { PostMessageW(g_hwnd, WM_STREAM_EVENT, 0, (LPARAM)p); };
+            auto post = [](json* p) {
+                if (!PostMessageW(g_hwnd, WM_STREAM_EVENT, 0, (LPARAM)p))
+                    delete p;
+            };
             [&]() {
                 auto fail = [&](const std::string& m) {
+                    if (stream->cancel.load()) return;
                     post(new json{{"id", id}, {"type", "error"}, {"error", m}});
                 };
                 URL_COMPONENTS uc;
@@ -1428,6 +1456,15 @@ static void reg_http() {
                     WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
                     return fail("WinHttpOpenRequest failed");
                 }
+                {
+                    std::lock_guard lk(stream->mtx);
+                    stream->hRequest = hRequest;
+                }
+                if (stream->cancel.load()) {
+                    closeHttpStreamRequest(stream);
+                    WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                    return;
+                }
                 if (!allHeaders.empty())
                     WinHttpAddRequestHeaders(hRequest, allHeaders.c_str(), (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
 
@@ -1437,13 +1474,22 @@ static void reg_http() {
                                                  bodyPtr, bodyLen, bodyLen, 0)
                               && WinHttpReceiveResponse(hRequest, nullptr);
                 if (!sendOk) {
-                    WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                    closeHttpStreamRequest(stream); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                    if (stream->cancel.load()) return;
                     return fail("HTTP request failed");
                 }
 
+                if (stream->cancel.load()) {
+                    closeHttpStreamRequest(stream); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                    return;
+                }
                 DWORD statusCode = 0, sz = sizeof(statusCode);
                 WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                                     WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &sz, WINHTTP_NO_HEADER_INDEX);
+                if (stream->cancel.load()) {
+                    closeHttpStreamRequest(stream); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                    return;
+                }
                 post(new json{{"id", id}, {"type", "open"}, {"status", (int)statusCode}});
 
                 std::string buffer;
@@ -1451,11 +1497,17 @@ static void reg_http() {
                 for (;;) {
                     if (stream->cancel.load()) break;
                     DWORD avail = 0;
-                    if (!WinHttpQueryDataAvailable(hRequest, &avail)) { fail("read failed"); errored = true; break; }
+                    if (!WinHttpQueryDataAvailable(hRequest, &avail)) {
+                        if (!stream->cancel.load()) { fail("read failed"); errored = true; }
+                        break;
+                    }
                     if (avail == 0) break;  // end of stream
                     std::string chunk(avail, 0);
                     DWORD read = 0;
-                    if (!WinHttpReadData(hRequest, chunk.data(), avail, &read)) { fail("read failed"); errored = true; break; }
+                    if (!WinHttpReadData(hRequest, chunk.data(), avail, &read)) {
+                        if (!stream->cancel.load()) { fail("read failed"); errored = true; }
+                        break;
+                    }
                     if (read == 0) break;
                     chunk.resize(read);
                     buffer += chunk;
@@ -1466,16 +1518,18 @@ static void reg_http() {
                     }
                 }
 
-                WinHttpCloseHandle(hRequest); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
+                closeHttpStreamRequest(stream); WinHttpCloseHandle(hConnect); WinHttpCloseHandle(hSession);
 
-                if (!errored) {
+                if (!errored && !stream->cancel.load()) {
                     if (!buffer.empty())
                         post(new json{{"id", id}, {"type", "chunk"}, {"data", buffer}});
                     post(new json{{"id", id}, {"type", "done"}, {"status", (int)statusCode}});
                 }
             }();
             std::lock_guard<std::mutex> lk(g_streamMutex);
-            g_streams.erase(id);
+            auto it = g_streams.find(id);
+            if (it != g_streams.end() && it->second == stream)
+                g_streams.erase(it);
         }).detach();
 
         return json{{"ok", true}};
@@ -1483,9 +1537,13 @@ static void reg_http() {
 
     ipc_on("http.streamCancel", [](const json& a) -> json {
         int id = a.value("id", -1);
-        std::lock_guard<std::mutex> lk(g_streamMutex);
-        auto it = g_streams.find(id);
-        if (it != g_streams.end()) it->second->cancel.store(true);
+        std::shared_ptr<HttpStream> stream;
+        {
+            std::lock_guard<std::mutex> lk(g_streamMutex);
+            auto it = g_streams.find(id);
+            if (it != g_streams.end()) stream = it->second;
+        }
+        if (stream) cancelHttpStream(stream);
         return json{{"ok", true}};
     });
 }
@@ -2718,6 +2776,16 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         DestroyWindow(h);
         return 0;
     case WM_DESTROY:
+        {
+            std::vector<std::shared_ptr<HttpStream>> streams;
+            {
+                std::lock_guard<std::mutex> lk(g_streamMutex);
+                for (auto& [id, stream] : g_streams)
+                    streams.push_back(stream);
+            }
+            for (auto& stream : streams)
+                cancelHttpStream(stream);
+        }
         // Cleanup watchers
         for (auto& [id, w] : g_watchers) {
             if (stopWatcher(w, 1000))

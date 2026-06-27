@@ -49,12 +49,12 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
   );
 }
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text, highlight = true }: { text: string; highlight?: boolean }) {
   return (
     <div className="markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
+        rehypePlugins={highlight ? [[rehypeHighlight, { detect: true, ignoreMissing: true }]] : []}
         components={{ pre: CodeBlock as any, a: ExternalLink as any }}
       >
         {text}

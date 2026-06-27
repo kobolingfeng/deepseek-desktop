@@ -163,6 +163,12 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     }
   }
 
+  function flushSse() {
+    if (!sseBuf) return;
+    handleLine(sseBuf);
+    sseBuf = '';
+  }
+
   function finalResult(cancelled = false): StreamResult {
     return {
       content,
@@ -198,7 +204,10 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         settled = true;
         unsub();
         if (isErrorStatus) rejectFn(new Error(parseError(rawErrBuf, status)));
-        else resolveFn(finalResult());
+        else {
+          flushSse();
+          resolveFn(finalResult());
+        }
       } else if (e.type === 'error') {
         settled = true;
         unsub();
@@ -245,6 +254,8 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
           if (done) break;
           feed(dec.decode(value, { stream: true }));
         }
+        feed(dec.decode());
+        flushSse();
         if (!settled) {
           settled = true;
           resolveFn(finalResult());

@@ -34,6 +34,7 @@ export function useChat() {
   const rafRef = useRef<number | null>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   const approvalResolver = useRef<((decision: boolean) => void) | null>(null);
+  const generatingRef = useRef(false);
   const stoppedRef = useRef(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -118,6 +119,7 @@ export function useChat() {
     stoppedRef.current = false;
     const startedAt = Date.now();
     const cfg = settingsRef.current;
+    let hitToolLimit = false;
 
     try {
       for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
@@ -212,6 +214,19 @@ export function useChat() {
           persist();
         }
         if (stoppedRef.current) break;
+        if (iter === MAX_TOOL_ITERS - 1) hitToolLimit = true;
+      }
+
+      if (hitToolLimit && !stoppedRef.current) {
+        conv.messages.push({
+          id: newId('e'),
+          role: 'assistant',
+          content: '',
+          error: `Reached the tool-call limit (${MAX_TOOL_ITERS} steps).`,
+          createdAt: Date.now(),
+        });
+        bumpNow();
+        persist();
       }
     } catch (e: any) {
       const last = conv.messages[conv.messages.length - 1];
@@ -231,6 +246,7 @@ export function useChat() {
       bumpNow();
       persist();
     } finally {
+      generatingRef.current = false;
       setGenerating(false);
       cancelRef.current = null;
       approvalResolver.current = null;
@@ -240,7 +256,8 @@ export function useChat() {
 
   function sendMessage(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || generating) return;
+    if (generatingRef.current || !trimmed) return;
+    generatingRef.current = true;
     let conv = getActive();
     if (!conv) conv = newConversation();
 

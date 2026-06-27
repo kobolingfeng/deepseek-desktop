@@ -30,11 +30,11 @@ export function Message({
       <div className="assistant-body">
         {message.reasoning && <ThinkingBlock text={message.reasoning} streaming={streaming && !message.content} />}
 
-        {message.toolCalls?.map((tc) => (
-          <ToolCallCard key={tc.id || tc.name} call={tc} result={tc.id ? toolResults.get(tc.id) : undefined} />
+        {message.toolCalls?.map((tc, i) => (
+          <ToolCallCard key={tc.id || `${tc.name}:${i}`} call={tc} result={tc.id ? toolResults.get(tc.id) : undefined} />
         ))}
 
-        {message.content && <Markdown text={message.content} />}
+        {message.content && <Markdown text={message.content} highlight={!streaming} />}
 
         {streaming && empty && (
           <div className="typing">

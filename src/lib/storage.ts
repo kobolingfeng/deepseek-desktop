@@ -38,12 +38,12 @@ export function loadConversations(): Conversation[] {
 export function saveConversations(list: Conversation[]): void {
   try {
     // Drop the transient streaming flag before persisting.
-    const clean = list.map((c) => ({
+    const clean = list.slice(0, 50).map((c) => ({
       ...c,
       messages: c.messages.map((m) => ({ ...m, pending: false })),
     }));
     localStorage.setItem(CONV_KEY, JSON.stringify(clean));
-  } catch {
-    /* ignore quota errors */
+  } catch (e) {
+    console.warn('Failed to save conversations', e);
   }
 }
