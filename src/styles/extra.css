@@ -1,6 +1,32 @@
 /* Additions/overrides loaded after global.css. Kept separate so an editor holding
    global.css open can't clobber them. */
 
+/* ── "Edited N files → Review" bar above the composer ── */
+.changes-bar {
+  margin: 0 var(--space-4) var(--space-2);
+  padding: 9px 12px 9px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  transition: border-color var(--dur-1);
+}
+.changes-bar:hover {
+  border-color: var(--border-strong);
+}
+.changes-bar-text {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.changes-bar .btn-approve {
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+
 /* ── Right side panel (preview / changes / tasks) ── */
 .chat {
   position: relative;
