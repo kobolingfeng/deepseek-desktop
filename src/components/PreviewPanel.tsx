@@ -137,6 +137,9 @@ function PreviewTab({ controller }: { controller: ChatController }) {
         <button className="ghost" onClick={reload} title={t('panelReload')}>
           ⟳
         </button>
+        <button className="ghost" onClick={() => src && shell.open(src).catch(() => {})} title={t('panelOpenBrowser')}>
+          ↗
+        </button>
       </div>
       {!src ? (
         <div className="side-empty">{t('panelNoPreview')}</div>

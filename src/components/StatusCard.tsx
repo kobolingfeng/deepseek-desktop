@@ -17,7 +17,7 @@ export function StatusCard({ controller }: { controller: ChatController }) {
   const count = msgs.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.auto).length;
   const rows: [string, string][] = [
     [t('statusModel'), conv?.model ?? s.model],
-    [t('statusDir'), (conv?.cwd || s.workingDir || '—') + (conv?.cwd ? ' ·' + t('statusDirPerChat') : '')],
+    [t('statusDir'), (conv?.cwd || s.workingDir || '—') + (conv?.cwd ? t('statusDirPerChat') : '')],
     [t('statusMode'), s.agentMode],
     [t('statusApproval'), deriveApprovalMode(s.toolPermissions)],
     [t('statusContext'), `${Math.round(ctx / 1000)}k / 64k`],
