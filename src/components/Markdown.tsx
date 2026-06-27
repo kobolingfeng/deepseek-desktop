@@ -2,7 +2,7 @@ import { Children, isValidElement, memo, useRef, useState, type ReactNode } from
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import { clipboard, shell } from '../api';
+import { clipboard, fs, notification, shell } from '../api';
 import { showContextMenu } from '../lib/contextMenu';
 import { useI18n } from '../lib/i18n';
 import { loadSettings } from '../lib/storage';
@@ -93,37 +93,54 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
   const { t } = useI18n();
   if (!href) return <>{children}</>;
   const file = !isHttp(href) && isFileish(href);
-  const open = () => {
-    shell.open(file ? resolveAbs(href) : href).catch(() => {});
+  const abs = file ? resolveAbs(href) : href;
+  const parent = file ? abs.replace(/[\\/][^\\/]*$/, '') || abs : '';
+
+  const openFile = async () => {
+    try {
+      await shell.open(abs); // default double-click behaviour (open with the registered app)
+    } catch {
+      // Not silent: tell the user (e.g. the file no longer exists).
+      notification.show(t('ctxOpenFailed'), abs).catch(() => {});
+    }
   };
+  const openUrl = () => shell.open(href).catch(() => {});
+
   const onContext = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const items = file
       ? [
-          { label: t('ctxOpen'), onClick: open },
+          { label: t('ctxOpen'), onClick: openFile },
+          { label: t('ctxOpenFolder'), onClick: () => shell.open(parent).catch(() => {}) },
+          { label: t('ctxReveal'), onClick: () => shell.execute('explorer.exe', ['/select,', abs]).catch(() => {}) },
+          { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(abs).catch(() => {}) },
           {
-            label: t('ctxReveal'),
-            onClick: () => {
-              const abs = resolveAbs(href);
-              shell.execute('explorer.exe', ['/select,', abs]).catch(() => shell.open(abs).catch(() => {}));
+            label: t('ctxCopyContents'),
+            onClick: async () => {
+              try {
+                await clipboard.writeText(await fs.readTextFile(abs));
+              } catch {
+                /* unreadable */
+              }
             },
           },
-          { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(resolveAbs(href)).catch(() => {}) },
         ]
       : [
-          { label: t('ctxOpen'), onClick: open },
+          { label: t('ctxOpenBrowser'), onClick: openUrl },
           { label: t('ctxCopyLink'), onClick: () => clipboard.writeText(href).catch(() => {}) },
         ];
     showContextMenu(e.clientX, e.clientY, items);
   };
+
   return (
     <a
       href={href}
       className={file ? 'md-link file' : 'md-link url'}
       onClick={(e) => {
         e.preventDefault();
-        open();
+        if (file) openFile();
+        else openUrl();
       }}
       onContextMenu={onContext}
     >
