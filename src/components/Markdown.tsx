@@ -165,14 +165,25 @@ function rehypeFilePaths() {
     if (!node || !node.children) return;
     const stop = skip || node.tagName === 'a' || node.tagName === 'code' || node.tagName === 'pre';
     const next: any[] = [];
+    // Coalesce consecutive text nodes first — micromark splits a backslash path
+    // like C:\Users\x into several text nodes, so per-node matching would miss it.
+    let buf = '';
+    const flush = () => {
+      if (!buf) return;
+      if (stop) next.push({ type: 'text', value: buf });
+      else next.push(...splitPathText(buf));
+      buf = '';
+    };
     for (const child of node.children) {
-      if (child.type === 'text' && !stop) {
-        next.push(...splitPathText(child.value));
+      if (child.type === 'text') {
+        buf += child.value;
       } else {
+        flush();
         walk(child, stop);
         next.push(child);
       }
     }
+    flush();
     node.children = next;
   };
   return (tree: any) => walk(tree, false);
@@ -190,6 +201,9 @@ export const Markdown = memo(function Markdown({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[...(highlight ? [[rehypeHighlight, { detect: true, ignoreMissing: true }]] : []), rehypeFilePaths] as any}
+        // Default urlTransform drops "C:\..." (looks like an unknown protocol); allow
+        // file paths through, block only dangerous schemes (we open via shell, not navigate).
+        urlTransform={(url) => (/^\s*(javascript|data|vbscript):/i.test(url) ? '' : url)}
         components={{ pre: CodeBlock as any, a: ExternalLink as any }}
       >
         {text}
