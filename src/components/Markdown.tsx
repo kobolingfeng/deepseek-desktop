@@ -31,7 +31,6 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
   }
 
   const raw = extractText(children).replace(/\n+$/, '');
-  const lineCount = raw ? raw.split('\n').length : 1;
 
   const copy = async () => {
     try {
@@ -51,20 +50,13 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
     <div className="code-block">
       <div className="code-head">
         <span className="code-lang">{lang || 'code'}</span>
-        <button className="code-copy" onClick={copy} title={t('copy')}>
-          {copied ? '✓ ' + t('copied') : '⧉ ' + t('copy')}
+        <button className="code-copy" onClick={copy} title={copied ? t('copied') : t('copy')} aria-label={t('copy')}>
+          {copied ? '✓' : '⧉'}
         </button>
       </div>
-      <div className="code-body">
-        <div className="code-gutter" aria-hidden>
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i}>{i + 1}</span>
-          ))}
-        </div>
-        <pre ref={ref} {...props}>
-          {children}
-        </pre>
-      </div>
+      <pre ref={ref} {...props}>
+        {children}
+      </pre>
     </div>
   );
 }

@@ -32,6 +32,39 @@ export async function fetchModels(settings: Settings): Promise<string[]> {
   }
 }
 
+/** DeepSeek's context window (tokens). /models doesn't report it, so it's fixed here. */
+export const CONTEXT_WINDOW = 131072; // 128K — DeepSeek V4 (flash/pro)
+
+export interface Balance {
+  currency: string;
+  total: string;
+}
+
+/** Fetch the account's remaining balance (DeepSeek /user/balance). null on failure. */
+export async function fetchBalance(settings: Settings): Promise<Balance | null> {
+  const baseUrl = (settings.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const url = `${baseUrl}/user/balance`;
+  const headers = { Authorization: `Bearer ${settings.apiKey}`, Accept: 'application/json' };
+  let body = '';
+  try {
+    body = await fetch(url, { headers }).then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))));
+  } catch {
+    try {
+      const r = await http.get(url, headers);
+      if (r.status >= 400) return null;
+      body = r.body;
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const info = JSON.parse(body)?.balance_infos?.[0];
+    return info ? { currency: String(info.currency || ''), total: String(info.total_balance ?? '') } : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ApiMessage {
   role: string;
   content: string;

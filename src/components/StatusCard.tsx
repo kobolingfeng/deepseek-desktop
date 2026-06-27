@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { useI18n } from '../lib/i18n';
+import { CONTEXT_WINDOW, fetchBalance, type Balance } from '../lib/deepseek';
 import { deriveApprovalMode } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 
@@ -14,13 +16,26 @@ export function StatusCard({ controller }: { controller: ChatController }) {
       break;
     }
   }
+  const [balance, setBalance] = useState<Balance | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (s.apiKey) fetchBalance(s).then((b) => alive && setBalance(b));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.apiKey, s.baseUrl]);
+  const balText = balance
+    ? `${balance.currency === 'CNY' ? '¥' : balance.currency === 'USD' ? '$' : balance.currency + ' '}${balance.total}`
+    : '…';
   const count = msgs.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.auto).length;
   const rows: [string, string][] = [
     [t('statusModel'), conv?.model ?? s.model],
     [t('statusDir'), (conv?.cwd || s.workingDir || '—') + (conv?.cwd ? t('statusDirPerChat') : '')],
     [t('statusMode'), s.agentMode],
     [t('statusApproval'), deriveApprovalMode(s.toolPermissions)],
-    [t('statusContext'), `${Math.round(ctx / 1000)}k / 64k`],
+    [t('statusContext'), `${Math.round(ctx / 1000)}k / ${Math.round(CONTEXT_WINDOW / 1024)}k`],
+    [t('statusBalance'), balText],
     [t('statusMessages'), String(count)],
   ];
 

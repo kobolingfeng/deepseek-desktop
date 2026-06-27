@@ -81,7 +81,9 @@ const LINK_HINT =
   'When you create, edit, delete, or read a local file, reference it as a Markdown link to its path so the user can open it, e.g. [src/app.ts](src/app.ts) or an absolute path. When you start or mention a local web server / preview, write its address as a Markdown link, e.g. [http://localhost:5173](http://localhost:5173). Only link real local paths/URLs you actually touched — never invented ones.';
 // Codex-style context compaction: when a conversation grows past this many
 // characters, summarize the older messages and keep only the recent ones.
-const COMPACT_CHAR_THRESHOLD = 90000;
+// ~150K chars ≈ 45K tokens (English) … ~90K tokens (CJK-heavy) — well under the
+// 128K context window, leaving room for the response.
+const COMPACT_CHAR_THRESHOLD = 150000;
 const KEEP_RECENT_MSGS = 6;
 const COMPACT_PROMPT =
   "Summarize the conversation so far into a concise but complete brief that preserves the user's goals, key facts, decisions, file paths, important code, and any open tasks, so the assistant can continue seamlessly. Write in the same language as the conversation. Output only the summary.";

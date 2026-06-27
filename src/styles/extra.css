@@ -457,11 +457,12 @@
   flex-shrink: 0;
 }
 
-/* ── User message: lighter, no bubble background (Codex/Claude-like) ── */
+/* ── User message: light bubble, right-aligned ── */
 .user-bubble {
-  background: transparent;
-  padding: 0 2px;
-  border-radius: 0;
+  background: var(--user-bubble-bg);
+  padding: 9px 14px;
+  border-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-xs);
 }
 
 /* ── Thinking block: render like a tool-call row, not a separate boxed block ── */
@@ -599,4 +600,27 @@
 }
 .edited-file-stat {
   font-size: var(--text-xs);
+}
+
+/* ── Code blocks: cleaner Codex-style (no line gutter, flat header, icon copy) ── */
+.code-head {
+  padding: 4px 6px 4px 12px;
+  background: transparent;
+  border-bottom: none;
+}
+.code-copy {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+}
+.code-block pre {
+  padding: 4px 14px 12px;
+}
+/* inline code: lighter, no border (Codex-like) */
+.markdown :not(pre) > code {
+  border: none;
+  padding: 1px 5px;
 }

@@ -280,20 +280,10 @@ export function Sidebar({
         }}
         title={c.title}
       >
-        {c.pinned ? (
+        {c.pinned && (
           <span className="conv-ico pin" aria-hidden>
             ★
           </span>
-        ) : (
-          <svg className="conv-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden>
-            <path
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.3"
-              strokeLinejoin="round"
-              d="M2.5 3.5h11v7h-6l-3 2.2v-2.2h-2z"
-            />
-          </svg>
         )}
         <span className="conv-title">{c.title}</span>
         {controller.runningIds.has(c.id) ? (
