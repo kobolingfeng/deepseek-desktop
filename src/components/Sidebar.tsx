@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
-import type { Conversation, ThemePref } from '../lib/types';
+import type { Conversation, Group, ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
+import { ConfirmDialog } from './ConfirmDialog';
+import { MoveToGroupDialog } from './MoveToGroupDialog';
+
+type Section =
+  | { kind: 'list'; key: string; label: string; items: Conversation[] }
+  | { kind: 'group'; key: string; group: Group; items: Conversation[] };
 
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
 const THEME_ICON: Record<ThemePref, string> = { system: '🖥', light: '☀', dark: '🌙' };
@@ -70,26 +76,46 @@ export function Sidebar({
   const [menuId, setMenuId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [moveId, setMoveId] = useState<string | null>(null);
+  const [groupMenuId, setGroupMenuId] = useState<string | null>(null);
+  const [groupRenameId, setGroupRenameId] = useState<string | null>(null);
+  const [groupRenameText, setGroupRenameText] = useState('');
+  const userGroups = controller.groups;
 
   useEffect(() => {
-    if (!menuId) return;
+    if (!menuId && !groupMenuId) return;
     const h = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('.conv-menu, .conv-kebab')) setMenuId(null);
+      if (!(e.target as HTMLElement).closest('.conv-menu, .conv-kebab')) {
+        setMenuId(null);
+        setGroupMenuId(null);
+      }
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [menuId]);
+  }, [menuId, groupMenuId]);
 
-  const groups = useMemo(() => {
+  const sections = useMemo<Section[]>(() => {
     const q = query.trim().toLowerCase();
     const filtered = q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
+    const groupIds = new Set(userGroups.map((g) => g.id));
     const pinned = filtered.filter((c) => c.pinned).sort(byRecent);
     const rest = filtered.filter((c) => !c.pinned);
-    const out: { label: string; items: Conversation[] }[] = [];
-    if (pinned.length) out.push({ label: t('groupPinned'), items: pinned });
-    out.push(...dateGroups(rest, t));
+
+    const out: Section[] = [];
+    if (pinned.length) out.push({ kind: 'list', key: 'pinned', label: t('groupPinned'), items: pinned });
+
+    for (const g of userGroups) {
+      const items = rest.filter((c) => c.groupId === g.id).sort(byRecent);
+      // While searching, hide groups with no matches; otherwise show all (even empty).
+      if (q && !items.length) continue;
+      out.push({ kind: 'group', key: 'g-' + g.id, group: g, items });
+    }
+
+    const ungrouped = rest.filter((c) => !c.groupId || !groupIds.has(c.groupId));
+    for (const d of dateGroups(ungrouped, t)) out.push({ kind: 'list', key: 'd-' + d.label, label: d.label, items: d.items });
     return out;
-  }, [conversations, query, t]);
+  }, [conversations, userGroups, query, t]);
 
   const cycleTheme = () => {
     const next = THEME_CYCLE[(THEME_CYCLE.indexOf(settings.theme) + 1) % THEME_CYCLE.length];
@@ -99,6 +125,75 @@ export function Sidebar({
   const commitRename = () => {
     if (renameId) controller.renameConversation(renameId, renameText);
     setRenameId(null);
+  };
+
+  const commitGroupRename = () => {
+    if (groupRenameId) controller.renameGroup(groupRenameId, groupRenameText);
+    setGroupRenameId(null);
+  };
+
+  const renderGroupHeader = (g: Group, count: number) => {
+    if (groupRenameId === g.id) {
+      return (
+        <div className="conv-group-head renaming">
+          <input
+            className="conv-rename"
+            value={groupRenameText}
+            autoFocus
+            onChange={(e) => setGroupRenameText(e.target.value)}
+            onBlur={commitGroupRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitGroupRename();
+              if (e.key === 'Escape') setGroupRenameId(null);
+            }}
+          />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`conv-group-head ${groupMenuId === g.id ? 'menu-open' : ''}`}
+        onClick={() => controller.toggleGroupCollapsed(g.id)}
+      >
+        <span className={`group-caret ${g.collapsed ? 'collapsed' : ''}`} aria-hidden>
+          ▾
+        </span>
+        <span className="group-name">📁 {g.name}</span>
+        <span className="group-count">{count}</span>
+        <button
+          className="conv-kebab"
+          title="More"
+          onClick={(e) => {
+            e.stopPropagation();
+            setGroupMenuId(groupMenuId === g.id ? null : g.id);
+          }}
+        >
+          ⋮
+        </button>
+        {groupMenuId === g.id && (
+          <div className="conv-menu" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => {
+                setGroupRenameId(g.id);
+                setGroupRenameText(g.name);
+                setGroupMenuId(null);
+              }}
+            >
+              {t('rename')}
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                controller.deleteGroup(g.id);
+                setGroupMenuId(null);
+              }}
+            >
+              {t('deleteGroup')}
+            </button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const renderItem = (c: Conversation) => {
@@ -193,9 +288,17 @@ export function Sidebar({
               {t('exportChat')}
             </button>
             <button
+              onClick={() => {
+                setMoveId(c.id);
+                setMenuId(null);
+              }}
+            >
+              {t('moveToGroup')}
+            </button>
+            <button
               className="danger"
               onClick={() => {
-                controller.deleteConversation(c.id);
+                setConfirmId(c.id);
                 setMenuId(null);
               }}
             >
@@ -242,13 +345,21 @@ export function Sidebar({
 
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}
-        {conversations.length > 0 && groups.length === 0 && <div className="conv-empty">{t('noMatches')}</div>}
-        {groups.map((g) => (
-          <div key={g.label} className="conv-group">
-            <div className="conv-section-label">{g.label}</div>
-            {g.items.map(renderItem)}
-          </div>
-        ))}
+        {conversations.length > 0 && sections.length === 0 && <div className="conv-empty">{t('noMatches')}</div>}
+        {sections.map((s) =>
+          s.kind === 'list' ? (
+            <div key={s.key} className="conv-group">
+              <div className="conv-section-label">{s.label}</div>
+              {s.items.map(renderItem)}
+            </div>
+          ) : (
+            <div key={s.key} className="conv-group">
+              {renderGroupHeader(s.group, s.items.length)}
+              {!s.group.collapsed && s.items.map(renderItem)}
+              {!s.group.collapsed && s.items.length === 0 && <div className="conv-group-empty">{t('groupEmpty')}</div>}
+            </div>
+          ),
+        )}
       </div>
 
       <div className="sidebar-footer">
@@ -259,6 +370,27 @@ export function Sidebar({
           {THEME_ICON[settings.theme]}
         </button>
       </div>
+
+      {confirmId && (
+        <ConfirmDialog
+          title={t('deleteChatTitle')}
+          message={t('deleteChatMsg')}
+          confirmLabel={t('delete')}
+          danger
+          onConfirm={() => {
+            controller.deleteConversation(confirmId);
+            setConfirmId(null);
+          }}
+          onCancel={() => setConfirmId(null)}
+        />
+      )}
+      {moveId &&
+        (() => {
+          const conv = conversations.find((c) => c.id === moveId);
+          return conv ? (
+            <MoveToGroupDialog controller={controller} conv={conv} onClose={() => setMoveId(null)} />
+          ) : null;
+        })()}
     </aside>
   );
 }

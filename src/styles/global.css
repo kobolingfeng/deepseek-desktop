@@ -1928,3 +1928,133 @@ textarea {
   min-width: 28px;
   text-align: center;
 }
+
+/* ============ Dialog (confirm / move) ============ */
+.dialog-card {
+  width: min(400px, 92vw);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-4);
+  animation: rise var(--dur-2) var(--ease-out);
+}
+.dialog-head {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  margin-bottom: var(--space-2);
+}
+.dialog-msg {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.btn-danger {
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
+  background: var(--danger);
+  color: #fff;
+  transition: filter var(--dur-1);
+}
+.btn-danger:hover {
+  filter: brightness(1.08);
+}
+.dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-bottom: var(--space-3);
+}
+.dialog-list-btn {
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dialog-list-btn:hover {
+  background: var(--bg-hover);
+}
+.dialog-list-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.dialog-newgroup {
+  display: flex;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-3);
+}
+.dialog-newgroup input {
+  flex: 1;
+  min-width: 0;
+}
+.dialog-newgroup .btn-approve {
+  flex-shrink: 0;
+}
+.dialog-newgroup .btn-approve:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ============ Sidebar groups ============ */
+.conv-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  position: relative;
+}
+.conv-group-head:hover {
+  background: var(--bg-hover);
+}
+.conv-group-head .conv-kebab {
+  display: none;
+}
+.conv-group-head:hover .conv-kebab,
+.conv-group-head.menu-open .conv-kebab {
+  display: grid;
+}
+.group-caret {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  transition: transform var(--dur-1);
+}
+.group-caret.collapsed {
+  transform: rotate(-90deg);
+}
+.group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-count {
+  color: var(--text-tertiary);
+  font-weight: var(--fw-normal);
+  font-variant-numeric: tabular-nums;
+}
+.conv-group-empty {
+  padding: 4px 10px 8px 22px;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}

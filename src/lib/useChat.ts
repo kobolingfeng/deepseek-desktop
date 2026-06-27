@@ -5,9 +5,11 @@ import { newId } from './id';
 import { callMcpTool, connectMcp, findMcpServer, mcpToolSchemas, type McpServerState } from './mcp';
 import {
   loadConversations,
+  loadGroups,
   loadProfiles,
   loadSettings,
   saveConversations,
+  saveGroups,
   saveProfiles,
   saveSettings,
 } from './storage';
@@ -20,7 +22,7 @@ import {
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
-import type { Conversation, Message, ModelId, Profile, Settings, ToolCall } from './types';
+import type { Conversation, Group, Message, ModelId, Profile, Settings, ToolCall } from './types';
 
 function pickProfile(s: Settings): Profile {
   return {
@@ -144,6 +146,7 @@ export function useChat() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [mcpStatus, setMcpStatus] = useState<McpServerState[]>([]);
   const mcpRef = useRef<McpServerState[]>([]);
+  const [groups, setGroups] = useState<Group[]>(loadGroups());
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);
@@ -251,6 +254,36 @@ export function useChat() {
     };
     convsRef.current = [copy, ...convsRef.current];
     setActiveId(copy.id);
+    persist();
+    bumpNow();
+  }
+
+  // ── Groups (folders) ─────────────────────────────────
+  function persistGroups(next: Group[]) {
+    setGroups(next);
+    saveGroups(next);
+  }
+  function createGroup(name: string): string {
+    const id = newId('g');
+    persistGroups([...groups, { id, name: name.trim() || 'New group' }]);
+    return id;
+  }
+  function renameGroup(id: string, name: string) {
+    persistGroups(groups.map((g) => (g.id === id ? { ...g, name: name.trim() || g.name } : g)));
+  }
+  function deleteGroup(id: string) {
+    for (const c of convsRef.current) if (c.groupId === id) c.groupId = undefined;
+    persist();
+    persistGroups(groups.filter((g) => g.id !== id));
+    bumpNow();
+  }
+  function toggleGroupCollapsed(id: string) {
+    persistGroups(groups.map((g) => (g.id === id ? { ...g, collapsed: !g.collapsed } : g)));
+  }
+  function moveToGroup(convId: string, groupId: string | null) {
+    const conv = convsRef.current.find((c) => c.id === convId);
+    if (!conv) return;
+    conv.groupId = groupId ?? undefined;
     persist();
     bumpNow();
   }
@@ -717,9 +750,15 @@ export function useChat() {
     pendingApproval,
     statusOpen,
     mcpStatus,
+    groups,
     // actions
     sendMessage,
     closeStatus,
+    createGroup,
+    renameGroup,
+    deleteGroup,
+    toggleGroupCollapsed,
+    moveToGroup,
     stop,
     newConversation,
     selectConversation,

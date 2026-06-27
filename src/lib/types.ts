@@ -60,6 +60,15 @@ export interface Conversation {
   updatedAt: number;
   pinned?: boolean;
   todos?: TodoItem[];
+  /** Id of the user-defined group this chat belongs to, if any. */
+  groupId?: string;
+}
+
+/** A user-defined conversation group (folder). */
+export interface Group {
+  id: string;
+  name: string;
+  collapsed?: boolean;
 }
 
 export type ThemePref = 'system' | 'light' | 'dark';
