@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
@@ -51,6 +51,33 @@ function CompactedNote({ text }: { text: string }) {
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const onCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await clipboard.writeText(text);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        /* ignore */
+      }
+    }
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <button className="msg-action icon-only" onClick={onCopy} title={copied ? t('copied') : t('copy')}>
+      {copied ? '✓' : '⧉'}
+    </button>
+  );
+}
+
 function MessageActions({ content, meta }: { content: string; meta?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -95,7 +122,10 @@ export function Message({
       <div className="msg user">
         <div className="user-col">
           <div className="bubble user-bubble">{message.content}</div>
-          <div className="msg-time">{clockTime(message.createdAt, lang)}</div>
+          <div className="msg-underbar">
+            <CopyButton text={message.content} />
+            <span className="msg-time">{clockTime(message.createdAt, lang)}</span>
+          </div>
         </div>
       </div>
     );

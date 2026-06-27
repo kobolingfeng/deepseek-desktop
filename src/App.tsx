@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChatView } from './components/ChatView';
+import { ContextMenu } from './components/ContextMenu';
 import { Settings } from './components/Settings';
 import { Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
@@ -59,6 +60,7 @@ export function App() {
             )}
           </main>
         </div>
+        <ContextMenu />
       </div>
     </I18nProvider>
   );

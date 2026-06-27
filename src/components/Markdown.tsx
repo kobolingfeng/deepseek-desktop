@@ -3,7 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { clipboard, shell } from '../api';
+import { showContextMenu } from '../lib/contextMenu';
 import { useI18n } from '../lib/i18n';
+import { loadSettings } from '../lib/storage';
 
 function extractText(node: ReactNode): string {
   if (node == null || node === false) return '';
@@ -67,13 +69,64 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
   );
 }
 
+function isHttp(h: string): boolean {
+  return /^https?:\/\//i.test(h);
+}
+function isFileish(h: string): boolean {
+  return (
+    /^[a-zA-Z]:[\\/]/.test(h) ||
+    h.startsWith('\\\\') ||
+    /^file:/i.test(h) ||
+    (/[\\/]/.test(h) && !h.includes('://') && !h.startsWith('#') && !/^mailto:/i.test(h))
+  );
+}
+function resolveAbs(p: string): string {
+  if (/^file:/i.test(p)) p = decodeURIComponent(p.replace(/^file:\/*/i, ''));
+  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p.replace(/\//g, '\\');
+  const wd = loadSettings().workingDir;
+  return (wd ? wd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '') : p).replace(/\//g, '\\');
+}
+
+// Render links to local files / local servers as clickable blue links: left-click
+// opens them; right-click shows a context menu (open / reveal / copy).
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const onClick = (e: React.MouseEvent) => {
+  const { t } = useI18n();
+  if (!href) return <>{children}</>;
+  const file = !isHttp(href) && isFileish(href);
+  const open = () => {
+    shell.open(file ? resolveAbs(href) : href).catch(() => {});
+  };
+  const onContext = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (href) shell.open(href).catch(() => {});
+    e.stopPropagation();
+    const items = file
+      ? [
+          { label: t('ctxOpen'), onClick: open },
+          {
+            label: t('ctxReveal'),
+            onClick: () => {
+              const abs = resolveAbs(href);
+              shell.execute('explorer.exe', ['/select,', abs]).catch(() => shell.open(abs).catch(() => {}));
+            },
+          },
+          { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(resolveAbs(href)).catch(() => {}) },
+        ]
+      : [
+          { label: t('ctxOpen'), onClick: open },
+          { label: t('ctxCopyLink'), onClick: () => clipboard.writeText(href).catch(() => {}) },
+        ];
+    showContextMenu(e.clientX, e.clientY, items);
   };
   return (
-    <a href={href} onClick={onClick}>
+    <a
+      href={href}
+      className={file ? 'md-link file' : 'md-link url'}
+      onClick={(e) => {
+        e.preventDefault();
+        open();
+      }}
+      onContextMenu={onContext}
+    >
       {children}
     </a>
   );

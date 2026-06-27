@@ -1,0 +1,128 @@
+/* Additions/overrides loaded after global.css. Kept separate so an editor holding
+   global.css open can't clobber them. */
+
+/* ── Hover-reveal message controls ── */
+/* The inter-message gap belongs to the message above, so hovering the message
+   plus the gap down to the next one reveals that message's timestamp/copy. */
+.message-list {
+  gap: 0;
+}
+.msg {
+  padding-bottom: var(--space-7);
+}
+.msg-underbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--dur-1);
+}
+.msg.user:hover .msg-underbar {
+  opacity: 1;
+}
+.msg-action.icon-only {
+  padding: 3px 6px;
+  font-size: 13px;
+}
+
+/* ── Move-to-group flyout submenu ── */
+.conv-subitem {
+  position: relative;
+}
+.conv-sub-parent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.conv-subitem:hover .conv-sub-parent {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sub-caret {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+.conv-submenu {
+  position: absolute;
+  right: 100%;
+  top: -5px;
+  min-width: 150px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  display: none;
+  flex-direction: column;
+}
+.conv-subitem:hover .conv-submenu {
+  display: flex;
+}
+.conv-submenu button {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-submenu button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.conv-submenu button.active {
+  color: var(--accent);
+}
+.conv-submenu-new {
+  border-top: 1px solid var(--border-default);
+  margin-top: 2px;
+  padding-top: 8px;
+}
+
+/* ── Global right-click context menu (links, etc.) ── */
+.ctx-menu {
+  position: fixed;
+  z-index: var(--z-menu, 100);
+  min-width: 180px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.ctx-item {
+  text-align: left;
+  padding: 8px 11px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ctx-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.ctx-item.danger {
+  color: var(--danger);
+}
+
+/* ── Local file / URL links in assistant markdown ── */
+.md-link {
+  cursor: pointer;
+}
+.md-link.file {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.95em;
+}

@@ -312,14 +312,47 @@ export function Sidebar({
             >
               {t('exportChat')}
             </button>
-            <button
-              onClick={() => {
-                setMoveId(c.id);
-                setMenuId(null);
-              }}
-            >
-              {t('moveToGroup')}
-            </button>
+            <div className="conv-subitem">
+              <button className="conv-sub-parent">
+                <span>{t('moveToGroup')}</span>
+                <span className="sub-caret" aria-hidden>
+                  ▸
+                </span>
+              </button>
+              <div className="conv-submenu">
+                {controller.groups.map((g) => (
+                  <button
+                    key={g.id}
+                    className={c.groupId === g.id ? 'active' : ''}
+                    onClick={() => {
+                      controller.moveToGroup(c.id, g.id);
+                      setMenuId(null);
+                    }}
+                  >
+                    📁 {g.name}
+                  </button>
+                ))}
+                {c.groupId && (
+                  <button
+                    onClick={() => {
+                      controller.moveToGroup(c.id, null);
+                      setMenuId(null);
+                    }}
+                  >
+                    ↩ {t('removeFromGroup')}
+                  </button>
+                )}
+                <button
+                  className="conv-submenu-new"
+                  onClick={() => {
+                    setMoveId(c.id);
+                    setMenuId(null);
+                  }}
+                >
+                  ＋ {t('newGroup')}…
+                </button>
+              </div>
+            </div>
             <button
               className="danger"
               onClick={() => {
