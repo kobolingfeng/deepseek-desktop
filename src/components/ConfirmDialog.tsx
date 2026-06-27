@@ -22,10 +22,10 @@ export function ConfirmDialog({
         <div className="dialog-head">{title}</div>
         {message && <div className="dialog-msg">{message}</div>}
         <div className="dialog-actions">
-          <button className="btn-deny" onClick={onCancel}>
+          <button className="btn-deny" onClick={onCancel} autoFocus={danger}>
             {t('cancel')}
           </button>
-          <button className={danger ? 'btn-danger' : 'btn-approve'} onClick={onConfirm} autoFocus>
+          <button className={danger ? 'btn-danger' : 'btn-approve'} onClick={onConfirm} autoFocus={!danger}>
             {confirmLabel || t('confirm')}
           </button>
         </div>

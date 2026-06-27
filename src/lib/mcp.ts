@@ -30,13 +30,14 @@ async function rpc(
     Accept: 'application/json, text/event-stream',
   };
   if (sessionId) headers['Mcp-Session-Id'] = sessionId;
+  const reqId = nextId++;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
     const resp = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ jsonrpc: '2.0', id: nextId++, method, params }),
+      body: JSON.stringify({ jsonrpc: '2.0', id: reqId, method, params }),
       signal: ctrl.signal,
     });
     const newSession = resp.headers.get('Mcp-Session-Id') || undefined;
@@ -49,7 +50,7 @@ async function rpc(
         if (l.startsWith('data:')) {
           try {
             const o = JSON.parse(l.slice(5).trim());
-            if (o && (o.result !== undefined || o.error !== undefined)) json = o;
+            if (o && o.id === reqId) json = o; // only accept the response to THIS request
           } catch {
             /* ignore */
           }
@@ -57,7 +58,8 @@ async function rpc(
       }
     } else {
       try {
-        json = JSON.parse(text);
+        const o = JSON.parse(text);
+        if (o && (o.id === reqId || o.id === undefined || o.id === null)) json = o;
       } catch {
         /* ignore */
       }
@@ -100,7 +102,13 @@ export async function connectMcp(name: string, url: string): Promise<McpServerSt
     await notify(url, sessionId, 'notifications/initialized');
     const list = await rpc(url, sessionId, 'tools/list', {});
     if (list.error) return { name, url, sessionId, tools: [], ok: false, error: list.error.message || 'tools/list failed' };
-    return { name, url, sessionId, tools: (list.result?.tools as McpTool[]) || [], ok: true };
+    // Validate the server's tool list; keep only safely-named tools, capped.
+    const raw = Array.isArray(list.result?.tools) ? (list.result.tools as any[]) : [];
+    const tools: McpTool[] = raw
+      .filter((tooly) => tooly && typeof tooly.name === 'string' && /^[a-zA-Z0-9_-]+$/.test(tooly.name))
+      .slice(0, 200)
+      .map((tooly) => ({ name: tooly.name, description: tooly.description, inputSchema: tooly.inputSchema }));
+    return { name, url, sessionId, tools, ok: true };
   } catch (e: any) {
     return { name, url, tools: [], ok: false, error: e?.message || String(e) };
   }
@@ -110,10 +118,12 @@ export async function callMcpTool(server: McpServerState, toolName: string, args
   const r = await rpc(server.url, server.sessionId, 'tools/call', { name: toolName, arguments: args });
   if (r.error) throw new Error(r.error.message || 'tool call failed');
   const content = r.result?.content;
-  if (Array.isArray(content)) {
-    return content.map((c: any) => (c?.type === 'text' ? c.text : JSON.stringify(c))).join('\n');
-  }
-  return typeof r.result === 'string' ? r.result : JSON.stringify(r.result ?? {});
+  const out = Array.isArray(content)
+    ? content.map((c: any) => (c?.type === 'text' ? c.text : JSON.stringify(c))).join('\n')
+    : typeof r.result === 'string'
+      ? r.result
+      : JSON.stringify(r.result ?? {});
+  return out.length > 60000 ? out.slice(0, 60000) + '\n… [truncated]' : out;
 }
 
 /** OpenAI-format tool schemas for all connected MCP tools, namespaced mcp__server__tool. */

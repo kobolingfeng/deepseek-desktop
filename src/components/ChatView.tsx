@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { Composer } from './Composer';
 import { Message } from './Message';
 import { StatusCard } from './StatusCard';
@@ -23,6 +23,13 @@ export function ChatView({
     const el = scrollerRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   });
+
+  // When switching conversations, jump to the newest message.
+  useEffect(() => {
+    stickRef.current = true;
+    const el = scrollerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [activeConversation?.id]);
 
   const onScroll = () => {
     const el = scrollerRef.current;

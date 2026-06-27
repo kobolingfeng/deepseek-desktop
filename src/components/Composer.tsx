@@ -132,10 +132,17 @@ export function Composer({
   }, [controller.settings.workingDir]);
 
   useEffect(() => {
-    if (atMatch && !filesLoaded.current && controller.settings.workingDir) {
-      filesLoaded.current = true;
-      listWorkspaceFiles(controller.settings.workingDir).then(setFiles).catch(() => {});
-    }
+    if (!(atMatch && !filesLoaded.current && controller.settings.workingDir)) return;
+    filesLoaded.current = true;
+    let cancelled = false;
+    listWorkspaceFiles(controller.settings.workingDir)
+      .then((f) => {
+        if (!cancelled) setFiles(f);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [atMatch, controller.settings.workingDir]);
 
   const curMode = controller.settings.agentMode || 'chat';

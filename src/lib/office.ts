@@ -16,10 +16,10 @@ async function tempPath(ext: string): Promise<string> {
 /** Read a binary file as base64 (staged through a temp file to dodge stdout limits). */
 async function readBytesBase64(p: string): Promise<string> {
   const tmp = await tempPath('.b64');
-  const ps = `[IO.File]::WriteAllText(${psQuote(tmp)}, [Convert]::ToBase64String([IO.File]::ReadAllBytes(${psQuote(p)})))`;
-  const r = await shell.run('powershell', ['-NoProfile', '-Command', ps]);
-  if (r.exitCode !== 0) throw new Error((r.stderr || 'failed to read file').trim());
   try {
+    const ps = `[IO.File]::WriteAllText(${psQuote(tmp)}, [Convert]::ToBase64String([IO.File]::ReadAllBytes(${psQuote(p)})))`;
+    const r = await shell.run('powershell', ['-NoProfile', '-Command', ps]);
+    if (r.exitCode !== 0) throw new Error((r.stderr || 'failed to read file').trim());
     return (await fs.readTextFile(tmp)).replace(/\s+/g, '');
   } finally {
     fs.remove(tmp).catch(() => {});
@@ -104,9 +104,18 @@ async function unzipEntries(file: string, likeGlob: string): Promise<{ name: str
 async function readDocx(p: string): Promise<string> {
   const entries = await unzipEntries(p, 'word/document.xml');
   const xml = entries.map((e) => e.xml).join('');
-  const paras = xml.split(/<\/w:p>/).map((para) =>
-    decodeXml([...para.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((x) => x[1]).join('')),
-  );
+  const paras = xml.split(/<\/w:p>/).map((para) => {
+    // Walk text runs, tabs and breaks in document order.
+    let s = '';
+    const re = /<w:t[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/?>|<w:br\b[^>]*\/?>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(para))) {
+      if (m[1] !== undefined) s += decodeXml(m[1]);
+      else if (m[0].startsWith('<w:tab')) s += '\t';
+      else s += '\n';
+    }
+    return s;
+  });
   return paras.join('\n').replace(/\n{3,}/g, '\n\n').trim() || '(no text found)';
 }
 

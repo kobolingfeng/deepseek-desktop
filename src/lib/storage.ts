@@ -93,11 +93,15 @@ export function loadConversations(): Conversation[] {
 
 export function saveConversations(list: Conversation[]): void {
   try {
-    // Drop the transient streaming flag before persisting.
-    const clean = list.slice(0, 50).map((c) => ({
-      ...c,
-      messages: c.messages.map((m) => ({ ...m, pending: false })),
-    }));
+    // Cap stored history, but NEVER evict pinned or grouped chats — only the
+    // oldest plain ones beyond the cap (list is newest-first).
+    const CAP = 50;
+    const keep = list.filter((c) => c.pinned || c.groupId);
+    const plain = list.filter((c) => !c.pinned && !c.groupId).slice(0, Math.max(20, CAP - keep.length));
+    const keepIds = new Set([...keep, ...plain].map((c) => c.id));
+    const clean = list
+      .filter((c) => keepIds.has(c.id))
+      .map((c) => ({ ...c, messages: c.messages.map((m) => ({ ...m, pending: false })) }));
     localStorage.setItem(CONV_KEY, JSON.stringify(clean));
   } catch (e) {
     console.warn('Failed to save conversations', e);

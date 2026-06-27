@@ -280,10 +280,12 @@ function isAbsolute(p: string): boolean {
 
 // Block model-driven fetches of loopback / private-network addresses (SSRF guard);
 // web-security is disabled in the WebView, so read_url could otherwise reach internal services.
-function isPrivateUrl(u: string): boolean {
+export function isPrivateUrl(u: string): boolean {
   try {
     const h = new URL(u).hostname.toLowerCase().replace(/^\[|\]$/g, '');
     if (h === 'localhost' || h === '0.0.0.0' || h === '::1' || h.endsWith('.local') || h.endsWith('.internal')) return true;
+    if (h.includes('::ffff:')) return true; // IPv4-mapped IPv6 (evasion)
+    if (/^\d+$/.test(h) || /^0x[0-9a-f]+$/i.test(h)) return true; // integer / hex IP form
     const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
     if (m) {
       const a = +m[1], b = +m[2];
@@ -721,7 +723,8 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
     case 'run_command': {
       const cmd = String(args.command || '').trim();
       if (!cmd) throw new Error('command is required');
-      const full = settings.workingDir ? `cd /d "${settings.workingDir}" && ${cmd}` : cmd;
+      const wd = (settings.workingDir || '').replace(/"/g, ''); // " is illegal in Windows paths; strip to avoid cmd breakout
+      const full = wd ? `cd /d "${wd}" && ${cmd}` : cmd;
       const r = await shell.run('cmd.exe', ['/c', full]);
       let out = r.stdout || '';
       if (r.stderr) out += (out ? '\n' : '') + '[stderr]\n' + r.stderr;
