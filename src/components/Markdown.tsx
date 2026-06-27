@@ -92,8 +92,18 @@ function resolveAbs(p: string): string {
 function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
   const { t } = useI18n();
   if (!href) return <>{children}</>;
-  const file = !isHttp(href) && isFileish(href);
-  const abs = file ? resolveAbs(href) : href;
+  // Markdown link destinations are percent-encoded by the parser (\ → %5C, CJK → %..),
+  // which hid file paths behind the URL classifier — decode before classifying/opening.
+  const safeDecode = (s: string) => {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  };
+  const target = href.includes('%') ? safeDecode(href) : href;
+  const file = !isHttp(target) && isFileish(target);
+  const abs = file ? resolveAbs(target) : href;
   const parent = file ? abs.replace(/[\\/][^\\/]*$/, '') || abs : '';
 
   const openFile = async () => {
@@ -152,7 +162,7 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
 // Auto-linkify bare file paths in rendered text (remark-gfm already links URLs).
 // A path = optional drive/UNC/relative prefix + ≥1 separator + a final .ext.
 const PATH_RE =
-  /(?:[A-Za-z]:[\\/]|\\\\|\.{0,2}[\\/])?[\w.+-]+(?:[\\/][\w.+-]+)+\.[A-Za-z][\w]{0,9}/g;
+  /(?:[A-Za-z]:[\\/]|\\\\|\.{0,2}[\\/])?[\p{L}\p{N}_.+-]+(?:[\\/][\p{L}\p{N}_.+-]+)+\.[A-Za-z][\w]{0,9}/gu;
 
 function splitPathText(value: string): any[] {
   const out: any[] = [];
