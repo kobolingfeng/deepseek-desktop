@@ -32,8 +32,10 @@ export async function fetchModels(settings: Settings): Promise<string[]> {
   }
 }
 
-/** DeepSeek's context window (tokens). /models doesn't report it, so it's fixed here. */
-export const CONTEXT_WINDOW = 131072; // 128K — DeepSeek V4 (flash/pro)
+/** DeepSeek's context window. /models doesn't report it, so it's fixed here.
+ *  DeepSeek V4 (flash/pro) = 1M tokens per the official docs. */
+export const CONTEXT_WINDOW = 1048576; // 1M — DeepSeek V4
+export const CONTEXT_LABEL = '1M';
 
 export interface Balance {
   currency: string;

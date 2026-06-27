@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { dialog, isNativeRuntime, win } from '../api';
 import { useI18n } from '../lib/i18n';
-import { CONTEXT_WINDOW } from '../lib/deepseek';
+import { CONTEXT_LABEL } from '../lib/deepseek';
 import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, deriveApprovalMode, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
 import { nativeListen } from '../lib/voice';
@@ -357,7 +357,6 @@ export function Composer({
       break;
     }
   }
-  const ctxLimit = CONTEXT_WINDOW;
 
   const agentMode = controller.settings.agentMode || 'chat';
   const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), loop: t('modeLoop') };
@@ -485,7 +484,7 @@ export function Composer({
           <span className="hint-text">{t('disclaimer')}</span>
           {ctxTokens > 0 && (
             <span className="ctx-meter" title="context used">
-              {Math.round(ctxTokens / 1000)}k / {Math.round(ctxLimit / 1024)}k
+              {Math.round(ctxTokens / 1000)}k / {CONTEXT_LABEL}
             </span>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../lib/i18n';
-import { CONTEXT_WINDOW, fetchBalance, type Balance } from '../lib/deepseek';
+import { CONTEXT_LABEL, fetchBalance, type Balance } from '../lib/deepseek';
 import { deriveApprovalMode } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 
@@ -34,7 +34,7 @@ export function StatusCard({ controller }: { controller: ChatController }) {
     [t('statusDir'), (conv?.cwd || s.workingDir || '—') + (conv?.cwd ? t('statusDirPerChat') : '')],
     [t('statusMode'), s.agentMode],
     [t('statusApproval'), deriveApprovalMode(s.toolPermissions)],
-    [t('statusContext'), `${Math.round(ctx / 1000)}k / ${Math.round(CONTEXT_WINDOW / 1024)}k`],
+    [t('statusContext'), `${Math.round(ctx / 1000)}k / ${CONTEXT_LABEL}`],
     [t('statusBalance'), balText],
     [t('statusMessages'), String(count)],
   ];
