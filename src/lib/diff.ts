@@ -4,8 +4,10 @@ export type DiffRow = { t: 'ctx' | 'del' | 'add'; s: string };
 
 /** Minimal common-prefix/suffix line diff (same algorithm the tool cards use). */
 export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
-  const a = oldStr.split('\n');
-  const b = newStr.split('\n');
+  // Cap input so a huge write_file/edit_file arg can't freeze render (recomputed often).
+  const CAP = 200000;
+  const a = (oldStr.length > CAP ? oldStr.slice(0, CAP) : oldStr).split('\n');
+  const b = (newStr.length > CAP ? newStr.slice(0, CAP) : newStr).split('\n');
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let endA = a.length;

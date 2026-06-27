@@ -470,7 +470,8 @@ async function browserGet(url: string, signal?: AbortSignal): Promise<{ status: 
   try {
     const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } }, 20000, signal);
     return { status: r.status, body: await r.text(), finalUrl: r.url || url };
-  } catch {
+  } catch (e) {
+    if (signal?.aborted) throw e; // Stop pressed — don't continue via the uncancellable native path
     const r = await http.get(url, { 'User-Agent': UA });
     return { status: r.status, body: r.body, finalUrl: url };
   }
@@ -489,7 +490,8 @@ async function browserPostForm(url: string, body: string, signal?: AbortSignal):
       signal,
     );
     return { status: r.status, body: await r.text() };
-  } catch {
+  } catch (e) {
+    if (signal?.aborted) throw e; // Stop pressed — don't continue via the uncancellable native path
     const r = await http.request({
       url,
       method: 'POST',

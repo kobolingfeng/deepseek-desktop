@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { shell } from '../api';
 import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
+import { isPrivateUrl } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 import type { Conversation } from '../lib/types';
 
@@ -124,7 +126,26 @@ function PreviewTab({ controller }: { controller: ChatController }) {
           ⟳
         </button>
       </div>
-      {src ? <iframe className="preview-frame" src={src} title="preview" /> : <div className="side-empty">{t('panelNoPreview')}</div>}
+      {!src ? (
+        <div className="side-empty">{t('panelNoPreview')}</div>
+      ) : isPrivateUrl(src) ? (
+        // Only preview local servers in-app: web-security is disabled, so a remote
+        // page in this iframe could reach the native IPC bridge. Sandbox as defense.
+        <iframe
+          className="preview-frame"
+          src={src}
+          title="preview"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+        />
+      ) : (
+        <div className="side-empty">
+          {t('panelRemoteWarn')}
+          <br />
+          <button className="ghost" style={{ marginTop: 10 }} onClick={() => shell.open(src).catch(() => {})}>
+            {t('panelOpenBrowser')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

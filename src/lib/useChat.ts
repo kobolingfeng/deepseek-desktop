@@ -315,6 +315,8 @@ export function useChat() {
 
   function deleteConversation(id: string) {
     convsRef.current = convsRef.current.filter((c) => c.id !== id);
+    runningIdsRef.current.delete(id);
+    unreadIdsRef.current.delete(id); // don't leave a stuck taskbar badge
     if (activeId === id) setActiveId(convsRef.current[0]?.id ?? null);
     persist();
     bumpNow();
