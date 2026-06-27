@@ -35,7 +35,7 @@ export function isKnownTool(name: string): boolean {
 // Map a single mode onto per-tool permissions; Settings can still fine-tune,
 // which makes the composer show "Custom".
 export type ApprovalMode = 'ask' | 'auto' | 'full';
-const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'run_command'];
+export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'run_command'];
 
 export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
   const out: Record<string, ToolPerm> = {};

@@ -31,6 +31,8 @@ export interface Message {
   pending?: boolean;
   /** Marks a context-compaction summary message (rendered as a notice). */
   compacted?: boolean;
+  /** Auto-generated continuation prompt (loop mode) — hidden from the chat UI. */
+  auto?: boolean;
   /** Fatal error for this turn (shown in the bubble). */
   error?: string;
   /** Wall-clock ms the turn took (assistant messages). */
@@ -52,6 +54,8 @@ export type ThemePref = 'system' | 'light' | 'dark';
 export type Lang = 'en' | 'zh';
 /** Per-tool permission: run freely / ask each time / disabled. */
 export type ToolPerm = 'allow' | 'ask' | 'off';
+/** Agent operating mode: normal chat / plan-only / autonomous loop. */
+export type AgentMode = 'chat' | 'plan' | 'loop';
 
 export interface Settings {
   apiKey: string;
@@ -70,6 +74,8 @@ export interface Settings {
   language: Lang;
   /** Colour theme preference. */
   theme: ThemePref;
+  /** Agent operating mode. */
+  agentMode: AgentMode;
 }
 
 // Empty by default — no system prompt is sent unless the user sets one.
@@ -96,6 +102,7 @@ export const DEFAULT_SETTINGS: Settings = {
   temperature: 1.0,
   language: 'en',
   theme: 'system',
+  agentMode: 'chat',
 };
 
 export const MODELS: { id: ModelId; label: string; blurbKey: string; tools: boolean }[] = [

@@ -32,7 +32,7 @@ export function ChatView({
   const toolResults = new Map<string, Msg>();
   for (const m of messages) if (m.role === 'tool' && m.toolCallId) toolResults.set(m.toolCallId, m);
 
-  const visible = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
+  const visible = messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.auto);
   const isEmpty = visible.length === 0;
   const suggestions = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4'].map((k) => t(k));
 

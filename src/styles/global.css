@@ -1004,6 +1004,9 @@ textarea {
 .bar-chip-label {
   font-weight: var(--fw-semibold);
 }
+.bar-chip-ico {
+  font-size: 12px;
+}
 .bar-caret {
   font-size: 9px;
   color: var(--text-tertiary);

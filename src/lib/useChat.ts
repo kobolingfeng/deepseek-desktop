@@ -3,10 +3,15 @@ import { fs } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
-import { describeTool, executeTool, isKnownTool, TOOL_SCHEMAS, toolPerm } from './tools';
+import { DANGEROUS_TOOLS, describeTool, executeTool, isKnownTool, TOOL_SCHEMAS, toolPerm } from './tools';
 import type { Conversation, Message, ModelId, Settings, ToolCall } from './types';
 
 const MAX_TOOL_ITERS = 12;
+const LOOP_MAX_ITERS = 25;
+const PLAN_SYSTEM =
+  'You are in PLAN MODE. Investigate with read-only tools if needed, then reply with a concise numbered plan of the steps you would take. Do NOT create or edit files or run commands — make no changes. Stop after presenting the plan.';
+const LOOP_SYSTEM =
+  'You are in AUTONOMOUS LOOP MODE. Keep working toward the goal across as many steps and tool calls as needed without waiting for confirmation. When the entire task is fully complete, end your message with the marker <DONE> on its own line.';
 // Codex-style context compaction: when a conversation grows past this many
 // characters, summarize the older messages and keep only the recent ones.
 const COMPACT_CHAR_THRESHOLD = 90000;
@@ -219,11 +224,15 @@ export function useChat() {
     try {
       await maybeCompact(conv, cfg);
       const projectCtx = await loadProjectContext(cfg.workingDir);
-      const turnCfg: Settings = projectCtx
-        ? { ...cfg, systemPrompt: [projectCtx, cfg.systemPrompt].filter((s) => s && s.trim()).join('\n\n') }
-        : cfg;
+      const mode = cfg.agentMode || 'chat';
+      const modeText = mode === 'plan' ? PLAN_SYSTEM : mode === 'loop' ? LOOP_SYSTEM : '';
+      const turnCfg: Settings = {
+        ...cfg,
+        systemPrompt: [modeText, projectCtx, cfg.systemPrompt].filter((s) => s && s.trim()).join('\n\n'),
+      };
+      const maxIters = mode === 'loop' ? LOOP_MAX_ITERS : MAX_TOOL_ITERS;
 
-      for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
+      for (let iter = 0; iter < maxIters; iter++) {
         if (stoppedRef.current) break;
 
         const asst: Message = {
@@ -240,9 +249,12 @@ export function useChat() {
         bumpNow();
 
         const useTools = conv.model !== 'deepseek-reasoner';
-        const activeTools = TOOL_SCHEMAS.filter(
+        let activeTools = TOOL_SCHEMAS.filter(
           (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
         );
+        if (mode === 'plan') {
+          activeTools = activeTools.filter((s) => !DANGEROUS_TOOLS.includes((s.function as { name: string }).name));
+        }
         const handle = streamChat(
           {
             messages: conv.messages.slice(0, -1),
@@ -297,6 +309,27 @@ export function useChat() {
             asst.toolCalls = undefined; // stray tool calls without a tool_calls finish — discard
             bumpNow();
             persist();
+          }
+          // Loop mode: keep going until the model emits <DONE> or we hit the cap.
+          if (mode === 'loop' && !result.cancelled && !stoppedRef.current) {
+            if (/<DONE>/i.test(asst.content)) {
+              asst.content = asst.content.replace(/<DONE>/gi, '').trim();
+              bumpNow();
+              persist();
+              break;
+            }
+            if (iter < maxIters - 1) {
+              conv.messages.push({
+                id: newId('u'),
+                role: 'user',
+                content: 'Continue.',
+                auto: true,
+                createdAt: Date.now(),
+              });
+              bumpNow();
+              persist();
+              continue;
+            }
           }
           break;
         }
@@ -360,7 +393,7 @@ export function useChat() {
         persist();
 
         if (stoppedRef.current) break;
-        if (iter === MAX_TOOL_ITERS - 1) hitToolLimit = true;
+        if (iter === maxIters - 1) hitToolLimit = true;
       }
 
       if (hitToolLimit && !stoppedRef.current) {
@@ -368,7 +401,7 @@ export function useChat() {
           id: newId('e'),
           role: 'assistant',
           content: '',
-          error: `Reached the tool-call limit (${MAX_TOOL_ITERS} steps).`,
+          error: `Reached the step limit (${maxIters} steps).`,
           createdAt: Date.now(),
         });
         bumpNow();

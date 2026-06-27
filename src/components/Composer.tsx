@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
-import { MODELS, type ModelId } from '../lib/types';
+import { MODELS, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, deriveApprovalMode, type ApprovalMode } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 
@@ -184,6 +184,16 @@ export function Composer({
     { id: 'full', label: t('approvalFull'), desc: t('approvalFullDesc') },
   ];
 
+  // Mode chip
+  const agentMode = controller.settings.agentMode || 'chat';
+  const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), loop: t('modeLoop') };
+  const MODE_ICON: Record<string, string> = { chat: '💬', plan: '📋', loop: '🔁' };
+  const modeOptions = [
+    { id: 'chat', label: t('modeChat'), desc: t('modeChatDesc') },
+    { id: 'plan', label: t('modePlan'), desc: t('modePlanDesc') },
+    { id: 'loop', label: t('modeLoop'), desc: t('modeLoopDesc') },
+  ];
+
   return (
     <div className="composer">
       <div className="composer-inner">
@@ -201,14 +211,7 @@ export function Composer({
             <div className="composer-tools">
               <button className="composer-tool" onClick={attach} title={t('attachFile')} disabled={disabled}>
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M10.5 5.2 6 9.7a1.6 1.6 0 0 0 2.3 2.3l4.6-4.6a3 3 0 0 0-4.3-4.3L4 7.8a4.4 4.4 0 0 0 6.2 6.2l3.8-3.8"
-                  />
+                  <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" d="M8 3.3v9.4M3.3 8h9.4" />
                 </svg>
               </button>
               <BarMenu
@@ -231,6 +234,20 @@ export function Composer({
                 options={permOptions}
                 currentId={mode}
                 onSelect={(id) => controller.updateSettings({ toolPermissions: approvalModePerms(id as ApprovalMode) })}
+                disabled={disabled}
+              />
+              <BarMenu
+                heading={t('modeHeading')}
+                danger={agentMode === 'loop'}
+                chip={
+                  <>
+                    <span className="bar-chip-ico">{MODE_ICON[agentMode]}</span>
+                    {MODE_LABEL[agentMode]}
+                  </>
+                }
+                options={modeOptions}
+                currentId={agentMode}
+                onSelect={(id) => controller.updateSettings({ agentMode: id as AgentMode })}
                 disabled={disabled}
               />
             </div>
