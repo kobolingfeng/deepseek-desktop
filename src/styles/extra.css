@@ -543,3 +543,11 @@
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
+
+/* ── Tighten spacing between consecutive assistant (agent-step) messages ──
+   Each agent iteration is its own assistant message; the big inter-message gap
+   (kept for hover-reveal on the final answer) made thinking↔tool rows across
+   steps look far apart. Only collapse it between assistant→assistant. */
+.msg.assistant:has(+ .msg.assistant) {
+  padding-bottom: 6px;
+}
