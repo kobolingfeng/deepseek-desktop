@@ -773,3 +773,48 @@
   color: var(--text-tertiary);
   font-size: var(--text-sm);
 }
+
+/* ── Sidebar top menu: unified rows (New chat / Search / …), Codex-style ── */
+.sidebar-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: var(--space-2);
+}
+.sidebar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.sidebar-menu-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sidebar-menu-item .smi-ico {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.sidebar-menu-item .smi-label {
+  flex: 1;
+  text-align: left;
+}
+.sidebar-menu-item .smi-kbd {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-active);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  opacity: 0;
+  transition: opacity var(--dur-1);
+}
+.sidebar-menu-item:hover .smi-kbd {
+  opacity: 1;
+}

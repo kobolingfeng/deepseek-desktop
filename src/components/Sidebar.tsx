@@ -458,9 +458,9 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <button className="new-chat" onClick={handleNewChat}>
-        <span className="nc-left">
-          <svg className="nc-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+      <nav className="sidebar-menu">
+        <button className="sidebar-menu-item" onClick={handleNewChat}>
+          <svg className="smi-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden>
             <path
               fill="none"
               stroke="currentColor"
@@ -470,21 +470,24 @@ export function Sidebar({
               d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
             />
           </svg>
-          {t('newChat')}
-        </span>
-        <kbd className="nc-kbd">Ctrl+N</kbd>
-      </button>
-
-      <button className="sidebar-search-btn" onClick={onOpenSearch}>
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
-          <path
-            fill="currentColor"
-            d="M7 2a5 5 0 0 1 3.94 8.06l3 3-1.06 1.06-3-3A5 5 0 1 1 7 2m0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7"
-          />
-        </svg>
-        <span className="sb-label">{t('search')}</span>
-        <kbd className="sb-kbd">Ctrl+K</kbd>
-      </button>
+          <span className="smi-label">{t('newChat')}</span>
+          <kbd className="smi-kbd">Ctrl+N</kbd>
+        </button>
+        <button className="sidebar-menu-item" onClick={onOpenSearch}>
+          <svg className="smi-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14M20 20l-3.6-3.6"
+            />
+          </svg>
+          <span className="smi-label">{t('search')}</span>
+          <kbd className="smi-kbd">Ctrl+K</kbd>
+        </button>
+      </nav>
 
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}
