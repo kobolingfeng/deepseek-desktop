@@ -1,26 +1,90 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
+import { MODELS, type ModelId } from '../lib/types';
+import { approvalModePerms, deriveApprovalMode, type ApprovalMode } from '../lib/tools';
+import type { ChatController } from '../lib/useChat';
 
 const SpeechRec: any =
   typeof window !== 'undefined'
     ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     : undefined;
 
+function BarMenu({
+  chip,
+  heading,
+  options,
+  currentId,
+  onSelect,
+  disabled,
+  danger,
+}: {
+  chip: ReactNode;
+  heading?: string;
+  options: { id: string; label: string; desc?: string }[];
+  currentId: string;
+  onSelect: (id: string) => void;
+  disabled?: boolean;
+  danger?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+  return (
+    <div className="bar-dd" ref={ref}>
+      <button className={`bar-chip ${danger ? 'danger' : ''}`} onClick={() => setOpen((o) => !o)} disabled={disabled}>
+        {chip}
+        <span className="bar-caret">▾</span>
+      </button>
+      {open && (
+        <div className="bar-menu">
+          {heading && <div className="bar-menu-head">{heading}</div>}
+          {options.map((o) => (
+            <button
+              key={o.id}
+              className={`bar-option ${o.id === currentId ? 'active' : ''}`}
+              onClick={() => {
+                onSelect(o.id);
+                setOpen(false);
+              }}
+            >
+              <div className="bar-option-main">
+                <div className="bar-option-label">{o.label}</div>
+                {o.desc && <div className="bar-option-desc">{o.desc}</div>}
+              </div>
+              {o.id === currentId && <span className="bar-check">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Composer({
+  controller,
   generating,
   onSend,
   onStop,
   disabled,
   placeholder,
 }: {
+  controller: ChatController;
   generating: boolean;
   onSend: (text: string) => void;
   onStop: () => void;
   disabled?: boolean;
   placeholder?: string;
 }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
+  const lang = controller.settings.language;
   const [text, setText] = useState('');
   const [listening, setListening] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -33,7 +97,6 @@ export function Composer({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [text]);
 
-  // Drag files from the OS onto the window → insert their paths into the input.
   useEffect(() => {
     return win.onFileDrop(({ files }) => {
       if (!files || !files.length || disabled) return;
@@ -107,6 +170,25 @@ export function Composer({
     }
   };
 
+  // Model chip
+  const model = controller.activeConversation?.model ?? controller.settings.model;
+  const currentModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
+  const modelOptions = MODELS.map((m) => ({ id: m.id, label: m.label, desc: t(m.blurbKey) }));
+
+  // Permission chip
+  const mode = deriveApprovalMode(controller.settings.toolPermissions);
+  const PERM_LABEL: Record<string, string> = {
+    ask: t('approvalAsk'),
+    auto: t('approvalAuto'),
+    full: t('approvalFull'),
+    custom: t('approvalCustom'),
+  };
+  const permOptions = [
+    { id: 'ask', label: t('approvalAsk'), desc: t('approvalAskDesc') },
+    { id: 'auto', label: t('approvalAuto'), desc: t('approvalAutoDesc') },
+    { id: 'full', label: t('approvalFull'), desc: t('approvalFullDesc') },
+  ];
+
   return (
     <div className="composer">
       <div className="composer-inner">
@@ -146,8 +228,37 @@ export function Composer({
                   />
                 </svg>
               </button>
+              <BarMenu
+                heading={t('approvalHeading')}
+                danger={mode === 'full'}
+                chip={
+                  <>
+                    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden>
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinejoin="round"
+                        d="M8 1.8 3 3.6v3.9c0 3 2.1 5 5 6.7 2.9-1.7 5-3.7 5-6.7V3.6Z"
+                      />
+                    </svg>
+                    {PERM_LABEL[mode]}
+                  </>
+                }
+                options={permOptions}
+                currentId={mode}
+                onSelect={(id) => controller.updateSettings({ toolPermissions: approvalModePerms(id as ApprovalMode) })}
+                disabled={disabled}
+              />
             </div>
             <div className="composer-tools">
+              <BarMenu
+                chip={<span className="bar-chip-label">{currentModel.label}</span>}
+                options={modelOptions}
+                currentId={model}
+                onSelect={(id) => controller.setModel(id as ModelId)}
+                disabled={disabled}
+              />
               <button
                 className={`composer-tool ${listening ? 'listening' : ''}`}
                 onClick={toggleVoice}
@@ -170,12 +281,7 @@ export function Composer({
                   <span className="stop-square" />
                 </button>
               ) : (
-                <button
-                  className="send-btn"
-                  onClick={submit}
-                  disabled={!text.trim() || disabled}
-                  title={t('send')}
-                >
+                <button className="send-btn" onClick={submit} disabled={!text.trim() || disabled} title={t('send')}>
                   <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                     <path fill="currentColor" d="M1.7 7.3 14 2.1c.5-.2 1 .3.8.8L9.6 15c-.2.5-.9.5-1.1 0L6.9 9.9a.5.5 0 0 0-.3-.3L1.7 8.4c-.5-.2-.5-.9 0-1.1Z" />
                   </svg>

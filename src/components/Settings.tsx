@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { dialog } from '../api';
-import { DEFAULT_SYSTEM_PROMPT, MODELS, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
+import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
 import { TOOL_LIST } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
@@ -41,28 +41,6 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
       </div>
 
       <div className="settings-body">
-        {/* Model */}
-        <div className="settings-section">
-          <div className="section-title">{t('secModel')}</div>
-          <div className="section-card">
-            <div className="model-cards">
-              {MODELS.map((m) => (
-                <button
-                  key={m.id}
-                  className={`model-card ${settings.model === m.id ? 'active' : ''}`}
-                  onClick={() => controller.setModel(m.id)}
-                >
-                  <div className="model-card-top">
-                    <span className="model-card-name">{m.label}</span>
-                    <span className="model-badge">{t(m.tools ? 'toolsBadge' : 'reasoningBadge')}</span>
-                  </div>
-                  <div className="model-card-blurb">{t(m.blurbKey)}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
         {/* API */}
         <div className="settings-section">
           <div className="section-title">{t('secApi')}</div>

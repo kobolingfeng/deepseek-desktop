@@ -31,6 +31,31 @@ export function isKnownTool(name: string): boolean {
   return TOOL_LIST.some((t) => t.name === name);
 }
 
+// ── Quick approval modes (composer chip) ──────────────
+// Map a single mode onto per-tool permissions; Settings can still fine-tune,
+// which makes the composer show "Custom".
+export type ApprovalMode = 'ask' | 'auto' | 'full';
+const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'run_command'];
+
+export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
+  const out: Record<string, ToolPerm> = {};
+  for (const t of TOOL_LIST) {
+    if (mode === 'full') out[t.name] = 'allow';
+    else if (mode === 'auto') out[t.name] = t.name === 'run_command' ? 'ask' : 'allow';
+    else out[t.name] = DANGEROUS_TOOLS.includes(t.name) ? 'ask' : 'allow';
+  }
+  return out;
+}
+
+export function deriveApprovalMode(perms: Record<string, ToolPerm> | undefined): ApprovalMode | 'custom' {
+  const p = perms || {};
+  for (const mode of ['ask', 'auto', 'full'] as ApprovalMode[]) {
+    const preset = approvalModePerms(mode);
+    if (TOOL_LIST.every((t) => (p[t.name] ?? t.defaultPerm) === preset[t.name])) return mode;
+  }
+  return 'custom';
+}
+
 export const TOOL_SCHEMAS = [
   {
     type: 'function',

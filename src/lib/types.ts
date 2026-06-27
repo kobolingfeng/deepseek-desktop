@@ -70,15 +70,8 @@ export interface Settings {
   theme: ThemePref;
 }
 
-export const DEFAULT_SYSTEM_PROMPT =
-  'You are DeepSeek, a helpful AI assistant running as a native desktop app on the ' +
-  "user's Windows machine. You have tools to read, find, search, edit, and write files, " +
-  'run shell commands in the working directory, search the web, and read web pages. Use ' +
-  'them proactively: search the web when a question may depend on current or uncertain ' +
-  'information, and read files or pages to ground your answers instead of guessing. ' +
-  'Prefer edit_file for changing part of an existing file rather than rewriting it. ' +
-  'Be concise and accurate, briefly say what a tool call is doing, prefer relative paths ' +
-  'inside the working directory, and format answers in Markdown.';
+// Empty by default — no system prompt is sent unless the user sets one.
+export const DEFAULT_SYSTEM_PROMPT = '';
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',

@@ -106,6 +106,7 @@ export function ChatView({
       )}
 
       <Composer
+        controller={controller}
         generating={generating}
         onSend={controller.sendMessage}
         onStop={controller.stop}

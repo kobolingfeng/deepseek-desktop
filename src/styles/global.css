@@ -942,6 +942,95 @@ textarea {
   background: var(--danger-soft);
   animation: pulse 1.2s ease-in-out infinite;
 }
+
+/* Composer bar chips (model / permission) */
+.bar-dd {
+  position: relative;
+}
+.bar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.bar-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.bar-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bar-chip.danger {
+  color: var(--warning);
+}
+.bar-chip-label {
+  font-weight: var(--fw-semibold);
+}
+.bar-caret {
+  font-size: 9px;
+  color: var(--text-tertiary);
+}
+.bar-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 252px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-1);
+  z-index: var(--z-menu);
+  animation: pop var(--dur-2) var(--ease-out);
+}
+.composer-bar > .composer-tools:last-child .bar-menu {
+  left: auto;
+  right: 0;
+}
+.bar-menu-head {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  padding: 8px 10px 6px;
+}
+.bar-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+}
+.bar-option:hover {
+  background: var(--bg-hover);
+}
+.bar-option.active {
+  background: var(--accent-soft);
+}
+.bar-option-main {
+  flex: 1;
+  min-width: 0;
+}
+.bar-option-label {
+  font-size: var(--text-base);
+  font-weight: var(--fw-medium);
+}
+.bar-option-desc {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+.bar-check {
+  color: var(--accent);
+  font-size: 12px;
+}
 .send-btn {
   width: 34px;
   height: 34px;
