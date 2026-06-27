@@ -397,3 +397,32 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.95em;
 }
+
+/* Changes-tab: row with an open-file affordance */
+.change-row {
+  display: flex;
+  align-items: center;
+}
+.change-row .change-head {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+.change-open {
+  flex-shrink: 0;
+  width: 26px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-xs);
+  opacity: 0;
+  transition: opacity var(--dur-1), background var(--dur-1), color var(--dur-1);
+}
+.change-row:hover .change-open {
+  opacity: 1;
+}
+.change-open:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

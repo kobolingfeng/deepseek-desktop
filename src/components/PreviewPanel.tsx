@@ -53,6 +53,13 @@ function ChangesTab({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const changes = extractChanges(controller.activeConversation?.messages ?? []);
   const [open, setOpen] = useState<Record<number, boolean>>({});
+  const base = controller.activeConversation?.cwd || controller.settings.workingDir;
+  const resolve = (p: string) =>
+    /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')
+      ? p
+      : base
+        ? base.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '').replace(/\//g, '\\')
+        : p;
   if (!changes.length) return <div className="side-empty">{t('panelNoChanges')}</div>;
   const totA = changes.reduce((s, c) => s + c.additions, 0);
   const totD = changes.reduce((s, c) => s + c.deletions, 0);
@@ -64,14 +71,19 @@ function ChangesTab({ controller }: { controller: ChatController }) {
       </div>
       {changes.map((c, i) => (
         <div className="change-file" key={i}>
-          <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
-            <span className="change-kind">{c.kind === 'edit' ? '✎' : c.kind === 'excel' ? '▦' : '＋'}</span>
-            <span className="change-path">{c.path}</span>
-            {!c.ok && <span className="change-fail" title="failed">⚠</span>}
-            <span className="change-stat">
-              <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
-            </span>
-          </button>
+          <div className="change-row">
+            <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
+              <span className="change-kind">{c.kind === 'edit' ? '✎' : c.kind === 'excel' ? '▦' : '＋'}</span>
+              <span className="change-path">{c.path}</span>
+              {!c.ok && <span className="change-fail" title="failed">⚠</span>}
+              <span className="change-stat">
+                <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
+              </span>
+            </button>
+            <button className="change-open" title={t('ctxOpen')} onClick={() => shell.open(resolve(c.path)).catch(() => {})}>
+              ↗
+            </button>
+          </div>
           {open[i] && c.diff.length > 0 && (
             <div className="diff">
               {c.diff.map((r, j) => (
