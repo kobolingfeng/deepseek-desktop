@@ -67,7 +67,7 @@ async function expandMentions(text: string, dir: string): Promise<{ path: string
   return out;
 }
 
-const MAX_TOOL_ITERS = 20;
+const MAX_TOOL_ITERS = 30; // per-turn runaway backstop (chat); Goal mode auto-continues across turns
 const GOAL_MAX_ITERS = 25;
 let cancelSeq = 1;
 const nextCancelId = () => cancelSeq++;
@@ -935,7 +935,10 @@ export function useChat() {
           id: newId('e'),
           role: 'assistant',
           content: '',
-          error: `Reached the step limit (${maxIters} steps).`,
+          error:
+            cfg.language === 'zh'
+              ? `已执行 ${maxIters} 步后暂停 —— 这是防止失控循环的安全上限,不是能力限制。发送"继续"即可接着做;长任务建议用目标模式(自动续跑直到完成)。`
+              : `Paused after ${maxIters} steps — a safety limit to prevent runaway loops, not a capability cap. Send "continue" to resume; for long autonomous tasks use Goal mode (it auto-continues until done).`,
           createdAt: Date.now(),
         });
         bumpNow();

@@ -2388,7 +2388,14 @@ static void reg_extras() {
         // than a `cd /d "..."` prefix — cmd.exe can't parse the \" that arg-quoting emits.
         std::wstring cwdW = U2W(a.value("cwd", std::string{}));
         std::wstring cmdLine = quote_windows_arg(U2W(program));
-        if (a.contains("args") && a["args"].is_array()) {
+        std::string rawArgs = a.value("rawArgs", std::string{});
+        if (!rawArgs.empty()) {
+            // Appended verbatim (no MSVCRT \"-escaping). Used for `cmd.exe /s /c "<cmd>"`:
+            // cmd strips the outer quotes and runs the rest as-is, so quotes inside the
+            // command (e.g. git commit -m "msg") survive instead of being mangled.
+            cmdLine += L" ";
+            cmdLine += U2W(rawArgs);
+        } else if (a.contains("args") && a["args"].is_array()) {
             for (auto& arg : a["args"]) {
                 if (!arg.is_string()) throw std::runtime_error("shell.run args must be strings");
                 cmdLine += L" ";

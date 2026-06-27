@@ -742,10 +742,12 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     case 'run_command': {
       const cmd = String(args.command || '').trim();
       if (!cmd) throw new Error('command is required');
-      // Run in the working dir via the process CWD, not a `cd /d "..."` prefix
-      // (cmd.exe mis-parses the \" that native arg-quoting emits around the path).
+      // Run in the working dir via the process CWD (lpCurrentDirectory), and pass the
+      // command through `cmd.exe /s /c "<cmd>"` as a RAW arg (no MSVCRT \"-escaping):
+      // /s makes cmd strip just the outer quotes and run the rest verbatim, so quotes
+      // inside the command survive (e.g. git commit -m "msg").
       const wd = (settings.workingDir || '').replace(/"/g, '').trim();
-      const r = await shell.run('cmd.exe', ['/c', cmd], ctx.cancelId, wd || undefined);
+      const r = await shell.run('cmd.exe', [], ctx.cancelId, wd || undefined, `/s /c "${cmd}"`);
       let out = r.stdout || '';
       if (r.stderr) out += (out ? '\n' : '') + '[stderr]\n' + r.stderr;
       out = out.trim();
