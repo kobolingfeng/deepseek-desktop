@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Folder, FolderMinus } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import type { Conversation } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
@@ -34,7 +35,7 @@ export function MoveToGroupDialog({
         <div className="dialog-list">
           {conv.groupId && (
             <button className="dialog-list-btn" onClick={() => move(null)}>
-              ↩ {t('removeFromGroup')}
+              <FolderMinus size={14} strokeWidth={1.9} /> {t('removeFromGroup')}
             </button>
           )}
           {controller.groups.map((g) => (
@@ -43,7 +44,7 @@ export function MoveToGroupDialog({
               className={`dialog-list-btn ${conv.groupId === g.id ? 'active' : ''}`}
               onClick={() => move(g.id)}
             >
-              📁 {g.name}
+              <Folder size={14} strokeWidth={1.9} /> {g.name}
             </button>
           ))}
           {controller.groups.length === 0 && <div className="dialog-msg">{t('noGroups')}</div>}

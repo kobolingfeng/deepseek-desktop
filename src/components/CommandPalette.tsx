@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { SquarePen, FolderOpen, Settings } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
 
@@ -39,9 +40,9 @@ export function CommandPalette({
 
   const commands = useMemo(() => {
     const all = [
-      { id: 'new', icon: '✎', label: t('newChat'), kbd: 'Ctrl+N', run: () => controller.newConversation() },
-      { id: 'folder', icon: '📂', label: t('cmdOpenFolder'), kbd: 'Ctrl+O', run: () => controller.openWorkingDir() },
-      { id: 'settings', icon: '⚙', label: t('settings'), kbd: 'Ctrl+,', run: onOpenSettings },
+      { id: 'new', icon: SquarePen, label: t('newChat'), kbd: 'Ctrl+N', run: () => controller.newConversation() },
+      { id: 'folder', icon: FolderOpen, label: t('cmdOpenFolder'), kbd: 'Ctrl+O', run: () => controller.openWorkingDir() },
+      { id: 'settings', icon: Settings, label: t('settings'), kbd: 'Ctrl+,', run: onOpenSettings },
     ];
     const ql = q.trim().toLowerCase();
     return ql ? all.filter((c) => c.label.toLowerCase().includes(ql)) : all;
@@ -134,7 +135,10 @@ export function CommandPalette({
                 onMouseEnter={() => setActive(idx)}
                 onClick={() => choose(idx)}
               >
-                <span className="cmd-row-ico">{cmd.icon}</span>
+                {(() => {
+                  const I = cmd.icon;
+                  return <I className="cmd-row-ico" size={16} strokeWidth={1.8} />;
+                })()}
                 <span className="cmd-row-label">{cmd.label}</span>
                 <kbd className="cmd-kbd">{cmd.kbd}</kbd>
               </button>

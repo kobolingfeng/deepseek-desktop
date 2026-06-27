@@ -39,7 +39,8 @@ export function StatusCard({ controller }: { controller: ChatController }) {
           {controller.mcpStatus.map((m) => (
             <div className="status-row" key={'mcp-' + m.name}>
               <span className="status-k">
-                {m.ok ? '🟢' : '🔴'} {m.name}
+                <span className={`status-dot ${m.ok ? 'ok' : 'fail'}`} />
+                {m.name}
               </span>
               <span className="status-v">{m.ok ? `${m.tools.length} ${t('mcpTools')}` : m.error || 'failed'}</span>
             </div>

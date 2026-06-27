@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Pencil, FileSpreadsheet, FilePlus, TriangleAlert, ExternalLink, RotateCw } from 'lucide-react';
 import { shell } from '../api';
 import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
@@ -73,15 +74,27 @@ function ChangesTab({ controller }: { controller: ChatController }) {
         <div className="change-file" key={i}>
           <div className="change-row">
             <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
-              <span className="change-kind">{c.kind === 'edit' ? '✎' : c.kind === 'excel' ? '▦' : '＋'}</span>
+              <span className="change-kind">
+                {c.kind === 'edit' ? (
+                  <Pencil size={13} strokeWidth={1.9} />
+                ) : c.kind === 'excel' ? (
+                  <FileSpreadsheet size={13} strokeWidth={1.9} />
+                ) : (
+                  <FilePlus size={13} strokeWidth={1.9} />
+                )}
+              </span>
               <span className="change-path">{c.path}</span>
-              {!c.ok && <span className="change-fail" title="failed">⚠</span>}
+              {!c.ok && (
+                <span className="change-fail" title="failed">
+                  <TriangleAlert size={13} strokeWidth={1.9} />
+                </span>
+              )}
               <span className="change-stat">
                 <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
               </span>
             </button>
             <button className="change-open" title={t('ctxOpen')} onClick={() => shell.open(resolve(c.path)).catch(() => {})}>
-              ↗
+              <ExternalLink size={13} strokeWidth={1.9} />
             </button>
           </div>
           {open[i] && c.diff.length > 0 && (
@@ -135,10 +148,10 @@ function PreviewTab({ controller }: { controller: ChatController }) {
           {t('panelGo')}
         </button>
         <button className="ghost" onClick={reload} title={t('panelReload')}>
-          ⟳
+          <RotateCw size={14} strokeWidth={1.9} />
         </button>
         <button className="ghost" onClick={() => src && shell.open(src).catch(() => {})} title={t('panelOpenBrowser')}>
-          ↗
+          <ExternalLink size={14} strokeWidth={1.9} />
         </button>
       </div>
       {!src ? (

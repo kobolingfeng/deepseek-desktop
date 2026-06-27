@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 
 export function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
@@ -15,7 +16,7 @@ export function ThinkingBlock({ text, streaming }: { text: string; streaming: bo
   return (
     <div className={`thinking ${open ? 'open' : ''}`}>
       <button className="thinking-head" onClick={() => setOpen((o) => !o)}>
-        <span className="thinking-icon">✦</span>
+        <Sparkles className="thinking-icon" size={13} strokeWidth={1.9} />
         <span>{streaming ? t('thinking') : t('thoughtProcess')}</span>
         <span className="thinking-chevron">{open ? '▾' : '›'}</span>
       </button>

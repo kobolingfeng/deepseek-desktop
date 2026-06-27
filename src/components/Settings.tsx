@@ -267,7 +267,14 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
                     onChange={(e) => setMcps(mcps.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
                   />
                   <span className="mcp-state" title={st?.error || ''}>
-                    {st ? st.ok ? `🟢 ${st.tools.length}` : '🔴' : ''}
+                    {st ? (
+                      <>
+                        <span className={`status-dot ${st.ok ? 'ok' : 'fail'}`} />
+                        {st.ok ? st.tools.length : ''}
+                      </>
+                    ) : (
+                      ''
+                    )}
                   </span>
                   <button className="ghost list-del" onClick={() => setMcps(mcps.filter((_, j) => j !== i))}>
                     ✕

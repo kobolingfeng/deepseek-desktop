@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Monitor, Sun, Moon, Folder, Archive, Settings, Pin, FolderMinus, type LucideIcon } from 'lucide-react';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import { isAgentConv, type Conversation, type Group, type ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
@@ -10,7 +11,7 @@ type Section =
   | { kind: 'group'; key: string; group: Group; items: Conversation[] };
 
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
-const THEME_ICON: Record<ThemePref, string> = { system: '🖥', light: '☀', dark: '🌙' };
+const THEME_ICON: Record<ThemePref, LucideIcon> = { system: Monitor, light: Sun, dark: Moon };
 const DAY = 86400000;
 const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -206,7 +207,7 @@ export function Sidebar({
         <span className={`group-caret ${g.collapsed ? 'collapsed' : ''}`} aria-hidden>
           ▾
         </span>
-        <span className="group-name">📁 {g.name}</span>
+        <span className="group-name"><Folder size={13} strokeWidth={1.9} /> {g.name}</span>
         <span className="group-count">{count}</span>
         <button
           className="conv-kebab"
@@ -282,7 +283,7 @@ export function Sidebar({
           // Custom drag label that follows the cursor (instead of the row snapshot).
           const ghost = document.createElement('div');
           ghost.className = 'drag-ghost';
-          ghost.textContent = '💬  ' + c.title;
+          ghost.textContent = c.title;
           document.body.appendChild(ghost);
           try {
             e.dataTransfer.setDragImage(ghost, 14, 14);
@@ -304,7 +305,7 @@ export function Sidebar({
       >
         {c.pinned && (
           <span className="conv-ico pin" aria-hidden>
-            ★
+            <Pin size={13} strokeWidth={2} fill="currentColor" />
           </span>
         )}
         <span className="conv-title">{c.title}</span>
@@ -422,7 +423,7 @@ export function Sidebar({
                       setMenuId(null);
                     }}
                   >
-                    📁 {g.name}
+                    <Folder size={14} strokeWidth={1.9} /> {g.name}
                   </button>
                 ))}
                 {c.groupId && (
@@ -432,7 +433,7 @@ export function Sidebar({
                       setMenuId(null);
                     }}
                   >
-                    ↩ {t('removeFromGroup')}
+                    <FolderMinus size={14} strokeWidth={1.9} /> {t('removeFromGroup')}
                   </button>
                 )}
                 <button
@@ -539,7 +540,7 @@ export function Sidebar({
               <span className={`group-caret ${archivedOpen ? '' : 'collapsed'}`} aria-hidden>
                 ▾
               </span>
-              <span className="group-name">🗄 {t('groupArchived')}</span>
+              <span className="group-name"><Archive size={13} strokeWidth={1.9} /> {t('groupArchived')}</span>
               <span className="group-count">{archivedConvs.length}</span>
             </div>
             {archivedOpen && archivedConvs.map(renderItem)}
@@ -549,10 +550,13 @@ export function Sidebar({
 
       <div className="sidebar-footer">
         <button className={`settings-btn ${settingsOpen ? 'active' : ''}`} onClick={onOpenSettings}>
-          ⚙ {t('settings')}
+          <Settings size={15} strokeWidth={1.9} /> {t('settings')}
         </button>
         <button className="icon-btn" onClick={cycleTheme} title={t('themeLabel')}>
-          {THEME_ICON[settings.theme]}
+          {(() => {
+            const I = THEME_ICON[settings.theme];
+            return <I size={16} strokeWidth={1.9} />;
+          })()}
         </button>
       </div>
 

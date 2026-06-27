@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ListTodo } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import type { TodoItem } from '../lib/types';
 
@@ -11,7 +12,7 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
   return (
     <div className="todo-panel">
       <button className="todo-head" onClick={() => setOpen((o) => !o)}>
-        <span className="todo-title">📋 {t('planTitle')}</span>
+        <span className="todo-title"><ListTodo size={14} strokeWidth={1.9} /> {t('planTitle')}</span>
         <span className="todo-count">
           {done}/{todos.length}
         </span>

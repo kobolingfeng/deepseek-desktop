@@ -1,19 +1,32 @@
 import { useState } from 'react';
+import {
+  FileText,
+  Folder,
+  Search,
+  Globe,
+  ListTodo,
+  Pencil,
+  SquareTerminal,
+  Settings2,
+  FileSpreadsheet,
+  type LucideIcon,
+} from 'lucide-react';
 import { describeTool } from '../lib/tools';
 import { useI18n } from '../lib/i18n';
 import type { Message, ToolCall } from '../lib/types';
 
-const ICONS: Record<string, string> = {
-  read_file: '📄',
-  list_dir: '📁',
-  find_files: '🔎',
-  search_files: '🔎',
-  web_search: '🌐',
-  read_url: '🌐',
-  update_plan: '📋',
-  edit_file: '✎',
-  write_file: '✎',
-  run_command: '❯',
+const ICONS: Record<string, LucideIcon> = {
+  read_file: FileText,
+  list_dir: Folder,
+  find_files: Search,
+  search_files: Search,
+  web_search: Globe,
+  read_url: Globe,
+  update_plan: ListTodo,
+  edit_file: Pencil,
+  write_file: Pencil,
+  write_excel: FileSpreadsheet,
+  run_command: SquareTerminal,
 };
 
 type DiffRow = { t: 'ctx' | 'del' | 'add'; s: string };
@@ -59,13 +72,14 @@ export function ToolCallCard({ call, result }: { call: ToolCall; result?: Messag
     }
   }
 
+  const Ico = ICONS[call.name] ?? Settings2;
   return (
     <div className={`tool-row ${isError ? 'error' : ''}`}>
       <button className="tool-row-head" onClick={() => result && setOpen((o) => !o)} disabled={running}>
         {running ? (
           <span className="tool-row-spin" />
         ) : (
-          <span className="tool-row-ico">{ICONS[call.name] ?? '⚙'}</span>
+          <Ico className="tool-row-ico" size={13} strokeWidth={1.75} />
         )}
         <span className="tool-row-title">{title}</span>
         {detail && <code className="tool-row-detail">{detail}</code>}

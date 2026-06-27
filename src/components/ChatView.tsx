@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { KeyRound, ListTodo, MessageSquare, Target } from 'lucide-react';
 import { Composer } from './Composer';
 import { Message } from './Message';
 import { StatusCard } from './StatusCard';
@@ -102,7 +103,7 @@ export function ChatView({
       </button>
       {!settings.apiKey && (
         <div className="apikey-banner" onClick={onOpenSettings}>
-          🔑 {t('apiKeyBanner')}
+          <KeyRound size={15} strokeWidth={1.9} /> {t('apiKeyBanner')}
         </div>
       )}
 
@@ -157,14 +158,14 @@ export function ChatView({
 
       {planReady && (
         <div className="plan-bar">
-          <span className="plan-bar-text">📋 {t('planReady')}</span>
+          <span className="plan-bar-text"><ListTodo size={14} strokeWidth={1.9} /> {t('planReady')}</span>
           <div className="plan-bar-actions">
             <span className="plan-bar-label">{t('executeIn')}</span>
             <button className="btn-deny" onClick={() => executePlan('chat')}>
-              💬 {t('modeChat')}
+              <MessageSquare size={14} strokeWidth={1.9} /> {t('modeChat')}
             </button>
             <button className="btn-approve" onClick={() => executePlan('goal')}>
-              🎯 {t('modeGoal')}
+              <Target size={14} strokeWidth={1.9} /> {t('modeGoal')}
             </button>
           </div>
         </div>

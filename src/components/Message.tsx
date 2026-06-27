@@ -2,6 +2,7 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
+import { Copy, Check, Layers, TriangleAlert } from 'lucide-react';
 import { clipboard, shell } from '../api';
 import { extractChanges, type FileChange } from '../lib/diff';
 import { showContextMenu } from '../lib/contextMenu';
@@ -70,7 +71,7 @@ function CompactedNote({ text }: { text: string }) {
   return (
     <div className="compacted">
       <button className="compacted-head" onClick={() => setOpen((o) => !o)}>
-        <span>🗜 {t('compacted')}</span>
+        <span><Layers size={13} strokeWidth={1.9} /> {t('compacted')}</span>
         <span className="compacted-chevron">{open ? '▾' : '▸'}</span>
       </button>
       {open && <div className="compacted-body">{text}</div>}
@@ -100,7 +101,7 @@ function CopyButton({ text }: { text: string }) {
   };
   return (
     <button className="msg-action icon-only" onClick={onCopy} title={copied ? t('copied') : t('copy')}>
-      {copied ? '✓' : '⧉'}
+      {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.9} />}
     </button>
   );
 }
@@ -124,7 +125,7 @@ function MessageActions({ content, meta }: { content: string; meta?: string }) {
   return (
     <div className="msg-actions">
       <button className="msg-action" onClick={copy} title={t('copy')}>
-        {copied ? '✓ ' + t('copied') : '⧉ ' + t('copy')}
+        {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.9} />} {copied ? t('copied') : t('copy')}
       </button>
       {meta && <span className="msg-meta">{meta}</span>}
     </div>
@@ -246,7 +247,11 @@ export function Message({
         {streaming && empty && <StreamingMeter since={message.createdAt} label={t('thinking')} />}
         {streaming && !empty && message.content && <span className="caret" />}
 
-        {message.error && <div className="msg-error">⚠ {message.error}</div>}
+        {message.error && (
+          <div className="msg-error">
+            <TriangleAlert size={14} strokeWidth={1.9} /> {message.error}
+          </div>
+        )}
 
         {changes.length > 0 && (
           <div className="edited-files">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { MessageSquare, ListTodo, Target, type LucideIcon } from 'lucide-react';
 import { dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
 import { CONTEXT_LABEL } from '../lib/deepseek';
@@ -304,7 +305,7 @@ export function Composer({
 
   const agentMode = controller.settings.agentMode || 'chat';
   const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), goal: t('modeGoal') };
-  const MODE_ICON: Record<string, string> = { chat: '💬', plan: '📋', goal: '🎯' };
+  const MODE_ICON: Record<string, LucideIcon> = { chat: MessageSquare, plan: ListTodo, goal: Target };
   const modeOptions = [
     { id: 'chat', label: t('modeChat'), desc: t('modeChatDesc') },
     { id: 'plan', label: t('modePlan'), desc: t('modePlanDesc') },
@@ -374,7 +375,10 @@ export function Composer({
                   danger={agentMode === 'goal'}
                   chip={
                     <>
-                      <span className="bar-chip-ico">{MODE_ICON[agentMode]}</span>
+                      {(() => {
+                        const I = MODE_ICON[agentMode];
+                        return I ? <I className="bar-chip-ico" size={13} strokeWidth={1.9} /> : null;
+                      })()}
                       {MODE_LABEL[agentMode]}
                     </>
                   }

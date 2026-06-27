@@ -864,3 +864,26 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+
+/* lucide icons: align with adjacent text + never squish inside flex rows */
+svg.lucide {
+  vertical-align: -0.15em;
+  flex-shrink: 0;
+}
+
+/* status dots (replaces 🟢/🔴 emoji) */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+.status-dot.ok {
+  background: #3fb950;
+}
+.status-dot.fail {
+  background: #f85149;
+}

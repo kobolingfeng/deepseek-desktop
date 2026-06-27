@@ -1,5 +1,6 @@
 import { Children, isValidElement, memo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { Copy, Check } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { clipboard, fs, notification, shell } from '../api';
@@ -51,7 +52,7 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
       <div className="code-head">
         <span className="code-lang">{lang || 'code'}</span>
         <button className="code-copy" onClick={copy} title={copied ? t('copied') : t('copy')} aria-label={t('copy')}>
-          {copied ? '✓' : '⧉'}
+          {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.9} />}
         </button>
       </div>
       <pre ref={ref} {...props}>
