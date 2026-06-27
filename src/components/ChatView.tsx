@@ -3,7 +3,6 @@ import { Composer } from './Composer';
 import { Message } from './Message';
 import { StatusCard } from './StatusCard';
 import { TodoPanel } from './TodoPanel';
-import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
 import type { Message as Msg } from '../lib/types';
@@ -121,7 +120,7 @@ export function ChatView({
               </div>
             )}
             {visible.map((m) => (
-              <Message key={m.id} message={m} toolResults={toolResults} />
+              <Message key={m.id} message={m} toolResults={toolResults} onReview={() => controller.openPanel('changes')} />
             ))}
           </div>
         )}
@@ -159,30 +158,6 @@ export function ChatView({
         </div>
       )}
 
-      {!controller.panelOpen &&
-        (() => {
-          const ch = extractChanges(messages);
-          if (!ch.length) return null;
-          const a = ch.reduce((s, c) => s + c.additions, 0);
-          const d = ch.reduce((s, c) => s + c.deletions, 0);
-          return (
-            <div className="changes-bar" onClick={() => controller.openPanel('changes')}>
-              <span className="changes-bar-text">
-                📝 {t('panelEditedN', { n: String(ch.length) })} <span className="diff-add">+{a}</span>{' '}
-                <span className="diff-del">-{d}</span>
-              </span>
-              <button
-                className="btn-approve"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  controller.openPanel('changes');
-                }}
-              >
-                {t('reviewChanges')} →
-              </button>
-            </div>
-          );
-        })()}
 
       <Composer
         controller={controller}

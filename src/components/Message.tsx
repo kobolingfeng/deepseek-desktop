@@ -3,6 +3,7 @@ import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { clipboard } from '../api';
+import { extractChanges } from '../lib/diff';
 import { useI18n, type Lang } from '../lib/i18n';
 import type { Message as Msg } from '../lib/types';
 
@@ -107,9 +108,11 @@ function MessageActions({ content, meta }: { content: string; meta?: string }) {
 export function Message({
   message,
   toolResults,
+  onReview,
 }: {
   message: Msg;
   toolResults: Map<string, Msg>;
+  onReview?: () => void;
 }) {
   const { t, lang } = useI18n();
 
@@ -153,6 +156,29 @@ export function Message({
         {streaming && !empty && message.content && <span className="caret" />}
 
         {message.error && <div className="msg-error">⚠ {message.error}</div>}
+
+        {!streaming &&
+          (() => {
+            const turn: Msg[] = [message];
+            if (message.toolCalls)
+              for (const tc of message.toolCalls) {
+                const r = tc.id ? toolResults.get(tc.id) : undefined;
+                if (r) turn.push(r);
+              }
+            const ch = extractChanges(turn);
+            if (!ch.length) return null;
+            const a = ch.reduce((s, c) => s + c.additions, 0);
+            const d = ch.reduce((s, c) => s + c.deletions, 0);
+            return (
+              <button className="edited-card" onClick={onReview}>
+                <span className="edited-card-text">
+                  📝 {t('panelEditedN', { n: String(ch.length) })} <span className="diff-add">+{a}</span>{' '}
+                  <span className="diff-del">-{d}</span>
+                </span>
+                <span className="edited-card-review">{t('reviewChanges')} →</span>
+              </button>
+            );
+          })()}
 
         {!streaming && message.content && (
           <MessageActions content={message.content} meta={metaLine(message, lang)} />
