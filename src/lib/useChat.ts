@@ -74,6 +74,34 @@ function totalChars(messages: Message[], systemPrompt: string): number {
   return n;
 }
 
+// Auto-detect MCP servers configured in the project dir (codex/Claude/Cursor/VS Code
+// style config files). Only HTTP servers (those with a `url`) are usable here.
+async function detectProjectMcp(dir: string): Promise<{ name: string; url: string }[]> {
+  if (!dir) return [];
+  const base = dir.replace(/[\\/]+$/, '');
+  const candidates = ['.mcp.json', 'mcp.json', '.cursor\\mcp.json', '.vscode\\mcp.json'];
+  const out: { name: string; url: string }[] = [];
+  const seen = new Set<string>();
+  for (const rel of candidates) {
+    const p = base + '\\' + rel;
+    try {
+      if (!(await fs.exists(p))) continue;
+      const obj = JSON.parse(await fs.readTextFile(p));
+      const servers = obj?.mcpServers || obj?.servers || {};
+      for (const [name, v] of Object.entries(servers as Record<string, any>)) {
+        const url = typeof v?.url === 'string' ? v.url : '';
+        if (url && /^https?:\/\//i.test(url) && !seen.has(name)) {
+          seen.add(name);
+          out.push({ name, url });
+        }
+      }
+    } catch {
+      /* ignore missing/malformed config */
+    }
+  }
+  return out;
+}
+
 // Auto-load project instructions (AGENTS.md / CLAUDE.md) from the working dir,
 // the way codex / Claude Code do, and fold them into the system context.
 async function loadProjectContext(dir: string): Promise<string> {
@@ -168,22 +196,35 @@ export function useChat() {
   }, []);
 
   // Connect to MCP servers and load their tools whenever the list changes.
-  const mcpKey = JSON.stringify(settings.mcpServers);
+  const mcpKey = JSON.stringify(settings.mcpServers) + '|' + settings.workingDir;
   useEffect(() => {
     let cancelled = false;
-    const servers = settingsRef.current.mcpServers.filter((s) => s.name.trim() && s.url.trim());
-    if (!servers.length) {
-      mcpRef.current = [];
-      setMcpStatus([]);
-      return;
-    }
-    Promise.all(servers.map((s) => connectMcp(s.name.trim(), s.url.trim()))).then((states) => {
-      if (cancelled) return;
-      mcpRef.current = states;
-      setMcpStatus(states);
-    });
+    // Debounce so editing a server URL in Settings doesn't reconnect on every keystroke.
+    const timer = setTimeout(() => {
+      (async () => {
+        const fromSettings = settingsRef.current.mcpServers
+          .filter((s) => s.name.trim() && s.url.trim())
+          .map((s) => ({ name: s.name.trim(), url: s.url.trim() }));
+        const detected = await detectProjectMcp(settingsRef.current.workingDir);
+        const names = new Set(fromSettings.map((s) => s.name));
+        const all = [...fromSettings, ...detected.filter((d) => !names.has(d.name))];
+        if (!all.length) {
+          if (!cancelled) {
+            mcpRef.current = [];
+            setMcpStatus([]);
+          }
+          return;
+        }
+        const states = await Promise.all(all.map((s) => connectMcp(s.name, s.url)));
+        if (!cancelled) {
+          mcpRef.current = states;
+          setMcpStatus(states);
+        }
+      })();
+    }, 600);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [mcpKey]);
 
@@ -459,7 +500,8 @@ export function useChat() {
     setGenerating(true);
     stoppedRef.current = false;
     const startedAt = Date.now();
-    const cfg = settingsRef.current;
+    const cfg = settingsRef.current; // immutable snapshot for this turn
+    const turnMcp = mcpRef.current; // MCP servers as of turn start
     let hitToolLimit = false;
 
     try {
@@ -467,9 +509,10 @@ export function useChat() {
       const projectCtx = await loadProjectContext(cfg.workingDir);
       const mode = cfg.agentMode || 'chat';
       const modeText = mode === 'plan' ? PLAN_SYSTEM : mode === 'loop' ? LOOP_SYSTEM : '';
+      const globalMem = cfg.globalMemory?.trim() ? 'Global user memory / instructions:\n\n' + cfg.globalMemory.trim() : '';
       const turnCfg: Settings = {
         ...cfg,
-        systemPrompt: [modeText, projectCtx, cfg.systemPrompt].filter((s) => s && s.trim()).join('\n\n'),
+        systemPrompt: [modeText, globalMem, projectCtx, cfg.systemPrompt].filter((s) => s && s.trim()).join('\n\n'),
       };
       const maxIters = mode === 'loop' ? LOOP_MAX_ITERS : MAX_TOOL_ITERS;
 
@@ -495,8 +538,8 @@ export function useChat() {
         );
         if (mode === 'plan') {
           activeTools = activeTools.filter((s) => !DANGEROUS_TOOLS.includes((s.function as { name: string }).name));
-        } else if (mcpRef.current.length) {
-          activeTools = [...activeTools, ...mcpToolSchemas(mcpRef.current)];
+        } else if (turnMcp.length) {
+          activeTools = [...activeTools, ...mcpToolSchemas(turnMcp)];
         }
         const handle = streamChat(
           {
@@ -598,7 +641,7 @@ export function useChat() {
               isErr = true;
             }
           } else if (tc.name.startsWith('mcp__')) {
-            const { server, tool } = findMcpServer(mcpRef.current, tc.name);
+            const { server, tool } = findMcpServer(turnMcp, tc.name);
             if (!server || !server.ok) {
               out = `MCP server not connected for ${tc.name}.`;
               isErr = true;
@@ -638,7 +681,7 @@ export function useChat() {
               isErr = true;
             } else {
               try {
-                out = await executeTool(tc, settingsRef.current);
+                out = await executeTool(tc, cfg);
               } catch (e: any) {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;

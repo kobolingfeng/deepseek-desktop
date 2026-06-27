@@ -19,8 +19,9 @@ export function toApiMessages(messages: Message[], systemPrompt: string): ApiMes
     if (m.role === 'user') {
       let content = m.content;
       if (m.attachments && m.attachments.length) {
+        // Plain delimiters (not XML) so file contents can't break the boundary.
         content += m.attachments
-          .map((a) => `\n\n<file path="${a.path}">\n${a.content}\n</file>`)
+          .map((a) => `\n\n===== Attached file: ${a.path} =====\n${a.content}\n===== End of file: ${a.path} =====`)
           .join('');
       }
       out.push({ role: 'user', content });

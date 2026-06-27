@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { dialog } from '../api';
 import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
@@ -12,6 +12,14 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
   const { settings, updateSettings } = controller;
   const { t } = useI18n();
   const [showKey, setShowKey] = useState(false);
+  // Edit working dir as a draft; only commit a normalized path on blur/Enter/Browse
+  // so per-project profile switching doesn't fire on every keystroke.
+  const [dirDraft, setDirDraft] = useState(settings.workingDir);
+  useEffect(() => setDirDraft(settings.workingDir), [settings.workingDir]);
+  const commitDir = () => {
+    const v = dirDraft.trim();
+    if (v !== settings.workingDir) updateSettings({ workingDir: v });
+  };
 
   const browseDir = async () => {
     try {
@@ -82,10 +90,14 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
               <div className="row">
                 <input
                   type="text"
-                  value={settings.workingDir}
+                  value={dirDraft}
                   spellCheck={false}
                   placeholder="D:\\projects\\my-app"
-                  onChange={(e) => updateSettings({ workingDir: e.target.value })}
+                  onChange={(e) => setDirDraft(e.target.value)}
+                  onBlur={commitDir}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitDir();
+                  }}
                 />
                 <button className="ghost" onClick={browseDir}>
                   {t('browse')}
@@ -180,6 +192,17 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
               <button className="ghost" onClick={() => updateSettings({ systemPrompt: DEFAULT_SYSTEM_PROMPT })}>
                 {t('resetDefault')}
               </button>
+            </div>
+
+            <div className="field">
+              <label>{t('globalMemoryLabel')}</label>
+              <textarea
+                rows={5}
+                value={settings.globalMemory}
+                placeholder="e.g. Always answer in Chinese. Prefer TypeScript. My name is …"
+                onChange={(e) => updateSettings({ globalMemory: e.target.value })}
+              />
+              <p className="hint">{t('globalMemoryHint')}</p>
             </div>
           </div>
         </div>

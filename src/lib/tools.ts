@@ -1,5 +1,6 @@
 // Built-in agent tools, executed against the native fs/shell/http APIs.
 import { fs, http, shell } from '../api';
+import { readOffice, writeExcel } from './office';
 import type { Settings, ToolCall, ToolPerm } from './types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
@@ -12,9 +13,11 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'search_files', defaultPerm: 'allow' },
   { name: 'web_search', defaultPerm: 'allow' },
   { name: 'read_url', defaultPerm: 'allow' },
+  { name: 'read_office', defaultPerm: 'allow' },
   { name: 'update_plan', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'ask' },
   { name: 'write_file', defaultPerm: 'ask' },
+  { name: 'write_excel', defaultPerm: 'ask' },
   { name: 'run_command', defaultPerm: 'ask' },
 ];
 
@@ -36,7 +39,7 @@ export function isKnownTool(name: string): boolean {
 // Map a single mode onto per-tool permissions; Settings can still fine-tune,
 // which makes the composer show "Custom".
 export type ApprovalMode = 'ask' | 'auto' | 'full';
-export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'run_command'];
+export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'run_command'];
 
 export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
   const out: Record<string, ToolPerm> = {};
@@ -152,6 +155,21 @@ export const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'read_office',
+      description:
+        'Read the contents of a Microsoft Office document: Excel (.xlsx/.xlsm/.xls/.csv) returns each sheet as CSV; Word (.docx) returns the document text; PowerPoint (.pptx) returns per-slide text. Use this instead of read_file for these formats.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path to the .xlsx/.docx/.pptx/.csv file, absolute or relative to the working dir.' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_plan',
       description:
         'Maintain a visible TODO checklist for a multi-step task. Call it to create or update the plan as you work: list every step with a status. Mark a step "doing" when you start it and "done" when finished. Keep it short.',
@@ -211,6 +229,37 @@ export const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'write_excel',
+      description:
+        'Create or overwrite an Excel .xlsx workbook. Provide one or more sheets; each sheet has rows, where each row is an array of cell values (strings or numbers); the first row is typically headers. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Destination .xlsx file path.' },
+          sheets: {
+            type: 'array',
+            description: 'Sheets to write.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Sheet name.' },
+                rows: {
+                  type: 'array',
+                  description: 'Array of rows; each row is an array of cell values.',
+                  items: { type: 'array', items: {} },
+                },
+              },
+              required: ['rows'],
+            },
+          },
+        },
+        required: ['path', 'sheets'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'run_command',
       description:
         'Run a shell command via cmd.exe in the working directory and return stdout/stderr. Requires user approval.',
@@ -227,6 +276,27 @@ export const TOOL_SCHEMAS = [
 
 function isAbsolute(p: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\') || p.startsWith('/');
+}
+
+// Block model-driven fetches of loopback / private-network addresses (SSRF guard);
+// web-security is disabled in the WebView, so read_url could otherwise reach internal services.
+function isPrivateUrl(u: string): boolean {
+  try {
+    const h = new URL(u).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (h === 'localhost' || h === '0.0.0.0' || h === '::1' || h.endsWith('.local') || h.endsWith('.internal')) return true;
+    const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (m) {
+      const a = +m[1], b = +m[2];
+      if (a === 0 || a === 127 || a === 10) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 169 && b === 254) return true;
+    }
+    if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function resolvePath(p: string, base: string): string {
@@ -503,6 +573,10 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Web search', detail: a.query || '' };
     case 'read_url':
       return { title: 'Read page', detail: a.url || '' };
+    case 'read_office':
+      return { title: 'Read document', detail: a.path || '' };
+    case 'write_excel':
+      return { title: 'Write Excel', detail: a.path || '' };
     case 'update_plan':
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'write_file':
@@ -520,6 +594,13 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
     case 'read_file': {
       const p = resolvePath(args.path, settings.workingDir);
       if (!p) throw new Error('path is required');
+      try {
+        const st = await fs.stat(p);
+        if (st && st.size > 5_000_000)
+          return `(file is ${(st.size / 1e6).toFixed(1)} MB — too large to read whole; use search_files, or read a smaller file)`;
+      } catch {
+        /* stat unavailable — fall through */
+      }
       const content = await fs.readTextFile(p);
       return content === '' ? '(empty file)' : truncate(content, 60000);
     }
@@ -540,12 +621,18 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
     case 'read_url': {
       const url = String(args.url || '').trim();
       if (!/^https?:\/\//i.test(url)) throw new Error('a full http(s) url is required');
+      if (isPrivateUrl(url)) throw new Error('Refusing to fetch a localhost / private-network address.');
       const r = await browserGet(url);
       if (r.status >= 400) throw new Error(`Failed to open page (HTTP ${r.status})`);
       const raw = r.body.length > 2_000_000 ? r.body.slice(0, 2_000_000) : r.body;
       if (raw.slice(0, 4000).indexOf(String.fromCharCode(0)) >= 0) return '(the URL did not return readable text)';
       const text = htmlToText(raw);
       return text ? truncate(text, 12000) : '(no readable text found on the page)';
+    }
+    case 'read_office': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      return truncate(await readOffice(p), 60000);
     }
     case 'find_files': {
       const pattern = String(args.pattern || '').trim();
@@ -622,6 +709,14 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
       const content = typeof args.content === 'string' ? args.content : '';
       await fs.writeTextFile(p, content);
       return `Wrote ${content.length} characters to ${p}`;
+    }
+    case 'write_excel': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      const sheets = Array.isArray(args.sheets) ? args.sheets : [];
+      if (!sheets.length) throw new Error('sheets is required (array of { name, rows })');
+      const rows = await writeExcel(p, sheets);
+      return `Wrote ${sheets.length} sheet(s), ${rows} row(s) to ${p}`;
     }
     case 'run_command': {
       const cmd = String(args.command || '').trim();

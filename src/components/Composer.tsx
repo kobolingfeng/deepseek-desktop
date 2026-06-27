@@ -112,7 +112,9 @@ export function Composer({
   useEffect(() => {
     return win.onFileDrop(({ files }) => {
       if (!files || !files.length || disabled) return;
-      setText((prev) => (prev && !/\s$/.test(prev) ? prev + ' ' : prev) + files.join(' '));
+      // Prefix with @ so dropped files are inlined as attachments, not plain paths.
+      const tokens = files.map((f) => '@' + f).join(' ');
+      setText((prev) => (prev && !/\s$/.test(prev) ? prev + ' ' : prev) + tokens + ' ');
       ref.current?.focus();
     });
   }, [disabled]);
@@ -122,6 +124,12 @@ export function Composer({
   // ── Slash commands & @-file mention suggestions ──────────
   const slashQuery = !dismissed && /^\/(\S*)$/.test(text) ? text.slice(1).toLowerCase() : null;
   const atMatch = !dismissed ? /(?:^|\s)@(\S*)$/.exec(text) : null;
+
+  // Reset the @-mention file cache when the project directory changes.
+  useEffect(() => {
+    filesLoaded.current = false;
+    setFiles([]);
+  }, [controller.settings.workingDir]);
 
   useEffect(() => {
     if (atMatch && !filesLoaded.current && controller.settings.workingDir) {
@@ -167,7 +175,8 @@ export function Composer({
 
   const selectFile = (f: string) => {
     const i = text.lastIndexOf('@');
-    setText((i >= 0 ? text.slice(0, i) : text) + f + ' ');
+    // Keep the leading @ so the backend expands it into an inlined attachment.
+    setText((i >= 0 ? text.slice(0, i) : text) + '@' + f + ' ');
     setDismissed(true);
     ref.current?.focus();
   };

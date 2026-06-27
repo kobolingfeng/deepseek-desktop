@@ -62,7 +62,10 @@ async function rpc(
         /* ignore */
       }
     }
-    return { result: json?.result, error: json?.error, sessionId: newSession };
+    if (!json || typeof json !== 'object') {
+      return { error: { message: resp.ok ? 'invalid JSON-RPC response' : `HTTP ${resp.status}` }, sessionId: newSession };
+    }
+    return { result: json.result, error: json.error, sessionId: newSession };
   } finally {
     clearTimeout(timer);
   }
@@ -74,7 +77,15 @@ async function notify(url: string, sessionId: string | undefined, method: string
     Accept: 'application/json, text/event-stream',
   };
   if (sessionId) headers['Mcp-Session-Id'] = sessionId;
-  await fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method }) }).catch(() => {});
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    await fetch(url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method }), signal: ctrl.signal });
+  } catch {
+    /* ignore */
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function connectMcp(name: string, url: string): Promise<McpServerState> {

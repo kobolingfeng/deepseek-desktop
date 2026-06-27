@@ -103,6 +103,8 @@ export interface Settings {
   customCommands: { name: string; prompt: string }[];
   /** MCP servers (HTTP transport) to load tools from. */
   mcpServers: { name: string; url: string }[];
+  /** Global memory: instructions injected into every conversation, any project. */
+  globalMemory: string;
 }
 
 /** Per-working-directory profile: settings remembered per project. */
@@ -142,9 +144,10 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyOnDone: true,
   customCommands: [],
   mcpServers: [],
+  globalMemory: '',
 };
 
 export const MODELS: { id: ModelId; label: string; blurbKey: string; tools: boolean }[] = [
-  { id: 'deepseek-chat', label: 'DeepSeek V3', blurbKey: 'model_chat_blurb', tools: true },
+  { id: 'deepseek-chat', label: 'DeepSeek V4', blurbKey: 'model_chat_blurb', tools: true },
   { id: 'deepseek-reasoner', label: 'DeepSeek R1', blurbKey: 'model_reasoner_blurb', tools: false },
 ];
