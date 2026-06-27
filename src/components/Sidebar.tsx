@@ -84,7 +84,19 @@ export function Sidebar({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const userGroups = controller.groups;
+
+  // Position the kebab menu with fixed coords so it escapes the sidebar's scroll
+  // clipping (lets the submenu fly out to the right like Claude/Codex Desktop).
+  const computeMenuPos = (el: HTMLElement) => {
+    const W = 200;
+    const H = 380;
+    const r = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
+    const top = r.bottom + H > window.innerHeight ? Math.max(8, r.top - H) : r.bottom + 4;
+    setMenuPos({ top, left });
+  };
 
   useEffect(() => {
     if (!menuId && !groupMenuId) return;
@@ -176,13 +188,22 @@ export function Sidebar({
           title="More"
           onClick={(e) => {
             e.stopPropagation();
-            setGroupMenuId(groupMenuId === g.id ? null : g.id);
+            if (groupMenuId === g.id) {
+              setGroupMenuId(null);
+              return;
+            }
+            computeMenuPos(e.currentTarget as HTMLElement);
+            setGroupMenuId(g.id);
           }}
         >
           ⋮
         </button>
         {groupMenuId === g.id && (
-          <div className="conv-menu" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="conv-menu"
+            style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={() => {
                 setGroupRenameId(g.id);
@@ -283,13 +304,22 @@ export function Sidebar({
           title="More"
           onClick={(e) => {
             e.stopPropagation();
-            setMenuId(menuId === c.id ? null : c.id);
+            if (menuId === c.id) {
+              setMenuId(null);
+              return;
+            }
+            computeMenuPos(e.currentTarget as HTMLElement);
+            setMenuId(c.id);
           }}
         >
           ⋮
         </button>
         {menuId === c.id && (
-          <div className="conv-menu" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="conv-menu"
+            style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
               onClick={() => {
                 setRenameId(c.id);

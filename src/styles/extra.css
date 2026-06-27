@@ -317,7 +317,7 @@
 }
 .conv-submenu {
   position: absolute;
-  right: 100%;
+  left: 100%;
   top: -5px;
   min-width: 150px;
   max-height: 280px;
