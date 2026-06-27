@@ -17,7 +17,7 @@ export function ThinkingBlock({ text, streaming }: { text: string; streaming: bo
       <button className="thinking-head" onClick={() => setOpen((o) => !o)}>
         <span className="thinking-icon">✦</span>
         <span>{streaming ? t('thinking') : t('thoughtProcess')}</span>
-        <span className="thinking-chevron">{open ? '▾' : '▸'}</span>
+        <span className="thinking-chevron">{open ? '▾' : '›'}</span>
       </button>
       {open && <div className="thinking-body">{text}</div>}
     </div>

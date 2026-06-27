@@ -551,3 +551,24 @@
 .msg.assistant:has(+ .msg.assistant) {
   padding-bottom: 6px;
 }
+
+/* ── Unify thinking / tool-call / edited-file rows ──
+   Same compact shape; the disclosure chevron sits right after the content
+   (fit-content row), not pushed to the far right edge. */
+.tool-row-head,
+.thinking-head,
+.edited-file {
+  width: fit-content;
+  max-width: 100%;
+  gap: 7px;
+  padding: 3px 6px;
+}
+.tool-row-chev,
+.thinking-chevron,
+.edited-file-chev {
+  margin-left: 0;
+  padding-left: 4px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
