@@ -63,11 +63,13 @@ export function Sidebar({
   controller,
   onOpenSettings,
   onCloseSettings,
+  onOpenSearch,
   settingsOpen,
 }: {
   controller: ChatController;
   onOpenSettings: () => void;
   onCloseSettings: () => void;
+  onOpenSearch: () => void;
   settingsOpen: boolean;
 }) {
   const { t, lang } = useI18n();
@@ -473,25 +475,16 @@ export function Sidebar({
         <kbd className="nc-kbd">Ctrl+N</kbd>
       </button>
 
-      <div className="sidebar-search">
+      <button className="sidebar-search-btn" onClick={onOpenSearch}>
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
           <path
             fill="currentColor"
             d="M7 2a5 5 0 0 1 3.94 8.06l3 3-1.06 1.06-3-3A5 5 0 1 1 7 2m0 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7"
           />
         </svg>
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t('searchPlaceholder')}
-          spellCheck={false}
-        />
-        {query && (
-          <button className="search-clear" onClick={() => setQuery('')} title="Clear">
-            ✕
-          </button>
-        )}
-      </div>
+        <span className="sb-label">{t('search')}</span>
+        <kbd className="sb-kbd">Ctrl+K</kbd>
+      </button>
 
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}

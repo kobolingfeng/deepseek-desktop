@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChatView } from './components/ChatView';
+import { CommandPalette } from './components/CommandPalette';
 import { ContextMenu } from './components/ContextMenu';
 import { PreviewPanel } from './components/PreviewPanel';
 import { Settings } from './components/Settings';
@@ -12,6 +13,7 @@ import { os } from './api';
 export function App() {
   const controller = useChat();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const themePref = controller.settings.theme;
 
   // Apply colour theme: follow Windows when "system", otherwise force.
@@ -39,6 +41,18 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Ctrl/Cmd+K → command palette.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <I18nProvider
       lang={controller.settings.language}
@@ -51,6 +65,7 @@ export function App() {
             controller={controller}
             onOpenSettings={() => setSettingsOpen(true)}
             onCloseSettings={() => setSettingsOpen(false)}
+            onOpenSearch={() => setPaletteOpen(true)}
             settingsOpen={settingsOpen}
           />
           <main className="main">
@@ -62,6 +77,13 @@ export function App() {
           </main>
           {controller.panelOpen && <PreviewPanel controller={controller} />}
         </div>
+        {paletteOpen && (
+          <CommandPalette
+            controller={controller}
+            onClose={() => setPaletteOpen(false)}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        )}
         <ContextMenu />
       </div>
     </I18nProvider>
