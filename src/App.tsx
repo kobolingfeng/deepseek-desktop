@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChatView } from './components/ChatView';
 import { ContextMenu } from './components/ContextMenu';
+import { PreviewPanel } from './components/PreviewPanel';
 import { Settings } from './components/Settings';
 import { Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
@@ -59,6 +60,7 @@ export function App() {
               <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
             )}
           </main>
+          {controller.panelOpen && <PreviewPanel controller={controller} />}
         </div>
         <ContextMenu />
       </div>

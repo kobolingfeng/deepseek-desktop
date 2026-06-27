@@ -77,6 +77,17 @@ export function ChatView({
 
   return (
     <div className="chat">
+      <button
+        className={`panel-toggle ${controller.panelOpen ? 'active' : ''}`}
+        onClick={controller.togglePanel}
+        title={t('panelToggle')}
+        aria-label={t('panelToggle')}
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+          <line x1="10" y1="2.5" x2="10" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
+        </svg>
+      </button>
       {!settings.apiKey && (
         <div className="apikey-banner" onClick={onOpenSettings}>
           🔑 {t('apiKeyBanner')}

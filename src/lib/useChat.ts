@@ -200,6 +200,11 @@ export function useChat() {
     const cached = loadModels();
     return cached.length ? cached : FALLBACK_MODEL_IDS;
   });
+  // Right preview/changes/tasks panel
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState<'changes' | 'preview' | 'tasks'>('changes');
+  const [panelWidth, setPanelWidth] = useState(460);
+  const [previewUrl, setPreviewUrl] = useState('');
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);
@@ -411,6 +416,17 @@ export function useChat() {
     setStatusOpen(false);
   }
 
+  function openPanel(tab?: 'changes' | 'preview' | 'tasks') {
+    if (tab) setPanelTab(tab);
+    setPanelOpen(true);
+  }
+  function closePanel() {
+    setPanelOpen(false);
+  }
+  function togglePanel() {
+    setPanelOpen((o) => !o);
+  }
+
   async function runGitDiff() {
     const conv = getActive() ?? newConversation();
     const cwd = settingsRef.current.workingDir;
@@ -566,6 +582,7 @@ export function useChat() {
         ? cfg.model
         : models[0] || conv.model;
     let hitToolLimit = false;
+    let producedEdits = false;
 
     try {
       await maybeCompact(conv, cfg);
@@ -767,6 +784,9 @@ export function useChat() {
               }
             }
           }
+          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel')) {
+            producedEdits = true;
+          }
           conv.messages.push({
             id: newId('t'),
             role: 'tool',
@@ -844,6 +864,21 @@ export function useChat() {
         const body = last?.content ? last.content.replace(/\s+/g, ' ').slice(0, 120) : 'Response ready';
         notification.show('DeepSeek', body).catch(() => {});
       }
+      // Auto-open the right panel when the active turn produced something to show.
+      if (conv.id === activeIdRef.current && !stoppedRef.current) {
+        if (producedEdits) {
+          setPanelTab('changes');
+          setPanelOpen(true);
+        } else {
+          const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.content);
+          const u = last?.content?.match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]]*)?/i);
+          if (u) {
+            setPreviewUrl(u[0]);
+            setPanelTab('preview');
+            setPanelOpen(true);
+          }
+        }
+      }
     }
   }
 
@@ -880,7 +915,17 @@ export function useChat() {
     runningIds: runningIdsRef.current,
     unreadIds: unreadIdsRef.current,
     unreadCount,
+    panelOpen,
+    panelTab,
+    panelWidth,
+    previewUrl,
     // actions
+    openPanel,
+    closePanel,
+    togglePanel,
+    setPanelTab,
+    setPanelWidth,
+    setPreviewUrl,
     sendMessage,
     closeStatus,
     createGroup,
