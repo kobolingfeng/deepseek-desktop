@@ -333,6 +333,10 @@
 .conv-subitem:hover .conv-submenu {
   display: flex;
 }
+.conv-submenu.flip-left {
+  left: auto;
+  right: 100%;
+}
 .conv-submenu button {
   text-align: left;
   padding: 7px 10px;

@@ -7,6 +7,25 @@ const SETTINGS_KEY = 'deepseek.settings';
 const PROFILES_KEY = 'deepseek.profiles';
 const GROUPS_KEY = 'deepseek.groups';
 const MODELS_KEY = 'deepseek.models';
+const PANEL_KEY = 'deepseek.panel';
+
+export function loadPanelPrefs(): { width?: number; url?: string } {
+  try {
+    const raw = localStorage.getItem(PANEL_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+export function savePanelPrefs(p: { width?: number; url?: string }): void {
+  try {
+    localStorage.setItem(PANEL_KEY, JSON.stringify(p));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function loadModels(): string[] {
   try {

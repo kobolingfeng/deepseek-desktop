@@ -7,11 +7,13 @@ import {
   loadConversations,
   loadGroups,
   loadModels,
+  loadPanelPrefs,
   loadProfiles,
   loadSettings,
   saveConversations,
   saveGroups,
   saveModels,
+  savePanelPrefs,
   saveProfiles,
   saveSettings,
 } from './storage';
@@ -203,8 +205,16 @@ export function useChat() {
   // Right preview/changes/tasks panel
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelTab, setPanelTab] = useState<'changes' | 'preview' | 'tasks'>('changes');
-  const [panelWidth, setPanelWidth] = useState(460);
-  const [previewUrl, setPreviewUrl] = useState('');
+  const [panelWidth, setPanelWidthState] = useState(() => loadPanelPrefs().width || 460);
+  const [previewUrl, setPreviewUrlState] = useState(() => loadPanelPrefs().url || '');
+  const setPanelWidth = (w: number) => {
+    setPanelWidthState(w);
+    savePanelPrefs({ ...loadPanelPrefs(), width: w });
+  };
+  const setPreviewUrl = (u: string) => {
+    setPreviewUrlState(u);
+    savePanelPrefs({ ...loadPanelPrefs(), url: u });
+  };
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);

@@ -85,6 +85,7 @@ export function Sidebar({
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [submenuLeft, setSubmenuLeft] = useState(false);
   const userGroups = controller.groups;
 
   // Position the kebab menu with fixed coords so it escapes the sidebar's scroll
@@ -96,6 +97,8 @@ export function Sidebar({
     const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
     const top = r.bottom + H > window.innerHeight ? Math.max(8, r.top - H) : r.bottom + 4;
     setMenuPos({ top, left });
+    // Flip the move-to-group submenu to the left if it would overflow the right edge.
+    setSubmenuLeft(left + W + 170 > window.innerWidth);
   };
 
   useEffect(() => {
@@ -390,10 +393,10 @@ export function Sidebar({
               <button className="conv-sub-parent">
                 <span>{t('moveToGroup')}</span>
                 <span className="sub-caret" aria-hidden>
-                  ▸
+                  {submenuLeft ? '◂' : '▸'}
                 </span>
               </button>
-              <div className="conv-submenu">
+              <div className={`conv-submenu ${submenuLeft ? 'flip-left' : ''}`}>
                 {controller.groups.map((g) => (
                   <button
                     key={g.id}
