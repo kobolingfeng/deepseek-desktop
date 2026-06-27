@@ -129,7 +129,10 @@ export function Composer({
     }
   }, [atMatch, controller.settings.workingDir]);
 
+  const curMode = controller.settings.agentMode || 'chat';
   const SLASH: { cmd: string; label: string; run: () => void }[] = [
+    { cmd: 'plan', label: t('cmdPlan'), run: () => controller.updateSettings({ agentMode: curMode === 'plan' ? 'chat' : 'plan' }) },
+    { cmd: 'loop', label: t('cmdLoop'), run: () => controller.updateSettings({ agentMode: curMode === 'loop' ? 'chat' : 'loop' }) },
     { cmd: 'clear', label: t('cmdClear'), run: () => controller.clearActive() },
     { cmd: 'compact', label: t('cmdCompact'), run: () => controller.compactActive() },
     { cmd: 'init', label: t('cmdInit'), run: () => controller.sendMessage(t('initPrompt')) },
@@ -353,20 +356,22 @@ export function Composer({
                 onSelect={(id) => controller.updateSettings({ toolPermissions: approvalModePerms(id as ApprovalMode) })}
                 disabled={disabled}
               />
-              <BarMenu
-                heading={t('modeHeading')}
-                danger={agentMode === 'loop'}
-                chip={
-                  <>
-                    <span className="bar-chip-ico">{MODE_ICON[agentMode]}</span>
-                    {MODE_LABEL[agentMode]}
-                  </>
-                }
-                options={modeOptions}
-                currentId={agentMode}
-                onSelect={(id) => controller.updateSettings({ agentMode: id as AgentMode })}
-                disabled={disabled}
-              />
+              {agentMode !== 'chat' && (
+                <BarMenu
+                  heading={t('modeHeading')}
+                  danger={agentMode === 'loop'}
+                  chip={
+                    <>
+                      <span className="bar-chip-ico">{MODE_ICON[agentMode]}</span>
+                      {MODE_LABEL[agentMode]}
+                    </>
+                  }
+                  options={modeOptions}
+                  currentId={agentMode}
+                  onSelect={(id) => controller.updateSettings({ agentMode: id as AgentMode })}
+                  disabled={disabled}
+                />
+              )}
             </div>
             <div className="composer-tools">
               <BarMenu

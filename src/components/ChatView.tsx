@@ -62,8 +62,8 @@ export function ChatView({
     lastVisible.role === 'assistant' &&
     !!lastVisible.content;
 
-  const executePlan = () => {
-    controller.updateSettings({ agentMode: 'chat' });
+  const executePlan = (target: 'chat' | 'loop') => {
+    controller.updateSettings({ agentMode: target });
     controller.sendMessage(t('executePlanPrompt'));
   };
 
@@ -127,9 +127,15 @@ export function ChatView({
       {planReady && (
         <div className="plan-bar">
           <span className="plan-bar-text">📋 {t('planReady')}</span>
-          <button className="btn-approve" onClick={executePlan}>
-            {t('executePlan')} ▶
-          </button>
+          <div className="plan-bar-actions">
+            <span className="plan-bar-label">{t('executeIn')}</span>
+            <button className="btn-deny" onClick={() => executePlan('chat')}>
+              💬 {t('modeChat')}
+            </button>
+            <button className="btn-approve" onClick={() => executePlan('loop')}>
+              🔁 {t('modeLoop')}
+            </button>
+          </div>
         </div>
       )}
 

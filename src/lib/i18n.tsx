@@ -37,6 +37,11 @@ const en: Dict = {
   cmdModelDesc: 'Toggle DeepSeek V3 / R1',
   cmdCwd: 'Set working directory',
   cmdCwdDesc: 'Choose the folder tools operate in',
+  cmdPlan: 'Plan mode',
+  cmdPlanDesc: 'Investigate and plan; make no changes',
+  cmdLoop: 'Loop mode',
+  cmdLoopDesc: 'Work autonomously until done',
+  executeIn: 'Execute',
   planTitle: 'Plan',
   initPrompt:
     'Explore this project (read key files) and create an AGENTS.md at the working-directory root summarizing what it is, its structure, conventions, and how to build/run it. Use write_file to save it.',
@@ -174,6 +179,11 @@ const zh: Dict = {
   cmdModelDesc: '在 DeepSeek V3 / R1 间切换',
   cmdCwd: '设置工作目录',
   cmdCwdDesc: '选择工具操作的文件夹',
+  cmdPlan: '计划模式',
+  cmdPlanDesc: '只调研出计划,不做改动',
+  cmdLoop: '循环模式',
+  cmdLoopDesc: '自主执行直到完成',
+  executeIn: '执行',
   planTitle: '计划',
   initPrompt:
     '请浏览这个项目(读取关键文件),在工作目录根下创建 AGENTS.md,概括它是什么、目录结构、约定、以及如何构建/运行。用 write_file 保存。',

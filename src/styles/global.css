@@ -1072,6 +1072,15 @@ textarea {
   font-weight: var(--fw-medium);
   color: var(--text-primary);
 }
+.plan-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plan-bar-label {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
 
 /* Composer */
 .composer {
