@@ -137,7 +137,10 @@ export function mcpToolSchemas(servers: McpServerState[]): any[] {
         function: {
           name: `mcp__${s.name}__${tool.name}`,
           description: tool.description || '',
-          parameters: tool.inputSchema || { type: 'object', properties: {} },
+          parameters:
+            tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema)
+              ? tool.inputSchema
+              : { type: 'object', properties: {} },
         },
       });
     }

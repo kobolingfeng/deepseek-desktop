@@ -65,7 +65,16 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const s = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings;
+    // Coerce critical fields so malformed/old storage can't crash render paths.
+    if (typeof s.temperature !== 'number' || Number.isNaN(s.temperature)) s.temperature = DEFAULT_SETTINGS.temperature;
+    if (!Array.isArray(s.mcpServers)) s.mcpServers = [];
+    if (!Array.isArray(s.customCommands)) s.customCommands = [];
+    if (!s.toolPermissions || typeof s.toolPermissions !== 'object') s.toolPermissions = { ...DEFAULT_SETTINGS.toolPermissions };
+    if (typeof s.model !== 'string' || !s.model) s.model = DEFAULT_SETTINGS.model;
+    if (typeof s.globalMemory !== 'string') s.globalMemory = '';
+    if (typeof s.workingDir !== 'string') s.workingDir = '';
+    return s;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -85,7 +94,17 @@ export function loadConversations(): Conversation[] {
     if (!raw) return [];
     const list = JSON.parse(raw) as Conversation[];
     if (!Array.isArray(list)) return [];
-    return list;
+    // Normalize/drop malformed entries so the sidebar can't white-screen.
+    return list
+      .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && c.id)
+      .map((c) => ({
+        ...c,
+        title: typeof c.title === 'string' ? c.title : 'Chat',
+        model: typeof c.model === 'string' && c.model ? c.model : DEFAULT_SETTINGS.model,
+        messages: Array.isArray(c.messages) ? c.messages : [],
+        createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now(),
+        updatedAt: typeof c.updatedAt === 'number' ? c.updatedAt : c.createdAt || Date.now(),
+      }));
   } catch {
     return [];
   }

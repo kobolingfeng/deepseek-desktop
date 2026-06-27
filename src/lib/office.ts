@@ -79,6 +79,7 @@ export async function writeExcel(p: string, sheets: { name?: string; rows: unkno
 /** Pull selected entries' raw XML out of an OOXML (zip) file, in order. */
 async function unzipEntries(file: string, likeGlob: string): Promise<{ name: string; xml: string }[]> {
   const ps = [
+    '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;',
     'Add-Type -AssemblyName System.IO.Compression.FileSystem;',
     `$zip=[IO.Compression.ZipFile]::OpenRead(${psQuote(file)});`,
     `$es=$zip.Entries | Where-Object { ($_.FullName -replace '\\\\','/') -like ${psQuote(likeGlob)} } | Sort-Object FullName;`,

@@ -268,7 +268,8 @@ export function Composer({
       const p = await dialog.openFile();
       const path = Array.isArray(p) ? p[0] : p;
       if (path) {
-        setText((prev) => (prev ? prev.replace(/\s*$/, ' ') : '') + path);
+        // Prefix @ so the picked file is inlined as an attachment (like drag/drop).
+        setText((prev) => (prev ? prev.replace(/\s*$/, ' ') : '') + '@' + path + ' ');
         ref.current?.focus();
       }
     } catch {

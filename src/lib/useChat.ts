@@ -542,6 +542,12 @@ export function useChat() {
     const startedAt = Date.now();
     const cfg = settingsRef.current; // immutable snapshot for this turn
     const turnMcp = mcpRef.current; // MCP servers as of turn start
+    // Snapshot the model for the whole turn; fall back if the provider no longer serves it.
+    const turnModel = models.includes(conv.model)
+      ? conv.model
+      : models.includes(cfg.model)
+        ? cfg.model
+        : models[0] || conv.model;
     let hitToolLimit = false;
 
     try {
@@ -550,8 +556,8 @@ export function useChat() {
       const mode = cfg.agentMode || 'chat';
       const modeText = mode === 'plan' ? PLAN_SYSTEM : mode === 'loop' ? LOOP_SYSTEM : '';
       const globalMem = cfg.globalMemory?.trim() ? 'Global user memory / instructions:\n\n' + cfg.globalMemory.trim() : '';
-      const safety = modelSupportsTools(conv.model) ? TOOL_SAFETY : '';
-      const linkHint = modelSupportsTools(conv.model) ? LINK_HINT : '';
+      const safety = modelSupportsTools(turnModel) ? TOOL_SAFETY : '';
+      const linkHint = modelSupportsTools(turnModel) ? LINK_HINT : '';
       const turnCfg: Settings = {
         ...cfg,
         systemPrompt: [modeText, safety, linkHint, globalMem, projectCtx, cfg.systemPrompt]
@@ -568,7 +574,7 @@ export function useChat() {
           role: 'assistant',
           content: '',
           reasoning: '',
-          model: conv.model,
+          model: turnModel,
           createdAt: Date.now(),
           pending: true,
         };
@@ -576,7 +582,7 @@ export function useChat() {
         conv.updatedAt = Date.now();
         bumpNow();
 
-        const useTools = modelSupportsTools(conv.model);
+        const useTools = modelSupportsTools(turnModel);
         let activeTools = TOOL_SCHEMAS.filter(
           (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
         );
@@ -588,7 +594,7 @@ export function useChat() {
         const handle = streamChat(
           {
             messages: conv.messages.slice(0, -1),
-            model: conv.model,
+            model: turnModel,
             settings: turnCfg,
             tools: useTools && activeTools.length ? activeTools : undefined,
           },

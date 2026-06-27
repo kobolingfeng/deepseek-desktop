@@ -294,7 +294,7 @@ export function isPrivateUrl(u: string): boolean {
       if (a === 172 && b >= 16 && b <= 31) return true;
       if (a === 169 && b === 254) return true;
     }
-    if (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true;
+    if (h.includes(':') && (h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80'))) return true;
     return false;
   } catch {
     return false;
@@ -460,13 +460,13 @@ async function timedFetch(url: string, init: RequestInit, ms = 20000): Promise<R
   }
 }
 
-async function browserGet(url: string): Promise<{ status: number; body: string }> {
+async function browserGet(url: string): Promise<{ status: number; body: string; finalUrl: string }> {
   try {
     const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } });
-    return { status: r.status, body: await r.text() };
+    return { status: r.status, body: await r.text(), finalUrl: r.url || url };
   } catch {
     const r = await http.get(url, { 'User-Agent': UA });
-    return { status: r.status, body: r.body };
+    return { status: r.status, body: r.body, finalUrl: url };
   }
 }
 
@@ -625,6 +625,7 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
       if (!/^https?:\/\//i.test(url)) throw new Error('a full http(s) url is required');
       if (isPrivateUrl(url)) throw new Error('Refusing to fetch a localhost / private-network address.');
       const r = await browserGet(url);
+      if (isPrivateUrl(r.finalUrl)) throw new Error('Refusing: the URL redirected to a localhost / private-network address.');
       if (r.status >= 400) throw new Error(`Failed to open page (HTTP ${r.status})`);
       const raw = r.body.length > 2_000_000 ? r.body.slice(0, 2_000_000) : r.body;
       if (raw.slice(0, 4000).indexOf(String.fromCharCode(0)) >= 0) return '(the URL did not return readable text)';
