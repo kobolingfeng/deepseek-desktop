@@ -151,6 +151,21 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
             </div>
 
             <div className="field">
+              <div className="switch-row">
+                <div className="switch-text">
+                  <strong>{t('notifyLabel')}</strong>
+                  <span>{t('notifyDesc')}</span>
+                </div>
+                <button
+                  className={`switch ${settings.notifyOnDone ? 'on' : ''}`}
+                  role="switch"
+                  aria-checked={settings.notifyOnDone}
+                  onClick={() => updateSettings({ notifyOnDone: !settings.notifyOnDone })}
+                />
+              </div>
+            </div>
+
+            <div className="field">
               <label>{t('systemPromptLabel')}</label>
               <textarea
                 rows={6}

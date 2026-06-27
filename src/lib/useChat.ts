@@ -1,5 +1,5 @@
-import { useReducer, useRef, useState } from 'react';
-import { dialog, fs } from '../api';
+import { useEffect, useReducer, useRef, useState } from 'react';
+import { dialog, fs, notification, shell, win } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
@@ -104,8 +104,18 @@ export function useChat() {
   const approvalResolver = useRef<((decision: boolean) => void) | null>(null);
   const generatingRef = useRef(false);
   const stoppedRef = useRef(false);
+  const focusedRef = useRef(true);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+
+  useEffect(() => {
+    const offF = win.onFocus(() => (focusedRef.current = true));
+    const offB = win.onBlur(() => (focusedRef.current = false));
+    return () => {
+      offF();
+      offB();
+    };
+  }, []);
 
   const bumpNow = () => forceRender();
   const bumpSoon = () => {
@@ -197,6 +207,29 @@ export function useChat() {
       conv.updatedAt = Date.now();
       persist();
       bumpNow();
+    }
+  }
+
+  async function runGitDiff() {
+    const conv = getActive() ?? newConversation();
+    const cwd = settingsRef.current.workingDir;
+    const push = (content: string) => {
+      conv.messages.push({ id: newId('a'), role: 'assistant', content, createdAt: Date.now() });
+      conv.updatedAt = Date.now();
+      bumpNow();
+      persist();
+    };
+    if (!cwd) {
+      push('No working directory set — set one in Settings or with /cwd.');
+      return;
+    }
+    try {
+      const r = await shell.run('cmd.exe', ['/c', `cd /d "${cwd}" && git --no-pager diff`]);
+      const out = (r.stdout || '').trim();
+      if (out) push('```diff\n' + out.slice(0, 20000) + '\n```');
+      else push((r.stderr || '').trim() || 'No changes (clean working tree, or not a git repository).');
+    } catch (e: any) {
+      push('git diff failed: ' + (e?.message || String(e)));
     }
   }
 
@@ -375,6 +408,7 @@ export function useChat() {
         asst.toolCalls = result.toolCalls.length ? result.toolCalls : undefined;
         asst.elapsedMs = Date.now() - startedAt;
         if (result.usage?.total_tokens) asst.tokens = result.usage.total_tokens;
+        if (result.usage?.prompt_tokens) asst.inputTokens = result.usage.prompt_tokens;
         bumpNow();
         persist();
 
@@ -527,6 +561,11 @@ export function useChat() {
       cancelRef.current = null;
       approvalResolver.current = null;
       setPendingApproval(null);
+      if (settingsRef.current.notifyOnDone && !focusedRef.current && !stoppedRef.current) {
+        const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.content);
+        const body = last?.content ? last.content.replace(/\s+/g, ' ').slice(0, 120) : 'Response ready';
+        notification.show('DeepSeek', body).catch(() => {});
+      }
     }
   }
 
@@ -565,6 +604,7 @@ export function useChat() {
     exportConversation,
     clearActive,
     compactActive,
+    runGitDiff,
     setModel,
     updateSettings,
     approve: () => resolveApproval(true),

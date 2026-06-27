@@ -39,6 +39,8 @@ export interface Message {
   elapsedMs?: number;
   /** Total tokens reported by the API for this turn. */
   tokens?: number;
+  /** Input (prompt) tokens for this turn — reflects current context size. */
+  inputTokens?: number;
 }
 
 export type TodoStatus = 'pending' | 'doing' | 'done';
@@ -84,6 +86,8 @@ export interface Settings {
   theme: ThemePref;
   /** Agent operating mode. */
   agentMode: AgentMode;
+  /** Show a desktop notification when a reply finishes and the window is unfocused. */
+  notifyOnDone: boolean;
 }
 
 // Empty by default — no system prompt is sent unless the user sets one.
@@ -112,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'en',
   theme: 'system',
   agentMode: 'chat',
+  notifyOnDone: true,
 };
 
 export const MODELS: { id: ModelId; label: string; blurbKey: string; tools: boolean }[] = [

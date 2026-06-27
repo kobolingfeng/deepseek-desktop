@@ -135,6 +135,7 @@ export function Composer({
     { cmd: 'loop', label: t('cmdLoop'), run: () => controller.updateSettings({ agentMode: curMode === 'loop' ? 'chat' : 'loop' }) },
     { cmd: 'clear', label: t('cmdClear'), run: () => controller.clearActive() },
     { cmd: 'compact', label: t('cmdCompact'), run: () => controller.compactActive() },
+    { cmd: 'diff', label: t('cmdDiff'), run: () => controller.runGitDiff() },
     { cmd: 'init', label: t('cmdInit'), run: () => controller.sendMessage(t('initPrompt')) },
     {
       cmd: 'model',
@@ -222,6 +223,11 @@ export function Composer({
         return;
       }
     }
+    if (e.key === 'Escape' && generating) {
+      e.preventDefault();
+      onStop();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
@@ -289,6 +295,16 @@ export function Composer({
     { id: 'auto', label: t('approvalAuto'), desc: t('approvalAutoDesc') },
     { id: 'full', label: t('approvalFull'), desc: t('approvalFullDesc') },
   ];
+
+  const ctxMsgs = controller.activeConversation?.messages ?? [];
+  let ctxTokens = 0;
+  for (let i = ctxMsgs.length - 1; i >= 0; i--) {
+    if (ctxMsgs[i].inputTokens) {
+      ctxTokens = ctxMsgs[i].inputTokens as number;
+      break;
+    }
+  }
+  const ctxLimit = 65536;
 
   const agentMode = controller.settings.agentMode || 'chat';
   const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), loop: t('modeLoop') };
@@ -412,7 +428,14 @@ export function Composer({
             </div>
           </div>
         </div>
-        <div className="composer-hint">{t('disclaimer')}</div>
+        <div className="composer-hint">
+          <span className="hint-text">{t('disclaimer')}</span>
+          {ctxTokens > 0 && (
+            <span className="ctx-meter" title="context used">
+              {Math.round(ctxTokens / 1000)}k / {Math.round(ctxLimit / 1000)}k
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
