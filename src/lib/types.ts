@@ -65,6 +65,8 @@ export interface Conversation {
   groupId?: string;
   /** Archived chats are hidden from the main list (shown under "Archived"). */
   archived?: boolean;
+  /** Per-conversation working directory override (falls back to the global one). */
+  cwd?: string;
 }
 
 /** A user-defined conversation group (folder). */

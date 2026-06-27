@@ -351,13 +351,31 @@ export function useChat() {
     bumpNow();
   }
 
-  function copyWorkingDir() {
-    const d = settingsRef.current.workingDir;
+  function effectiveCwd(id?: string): string {
+    const conv = id ? convsRef.current.find((c) => c.id === id) : getActive();
+    return conv?.cwd || settingsRef.current.workingDir;
+  }
+  function copyWorkingDir(id?: string) {
+    const d = effectiveCwd(id);
     if (d) clipboard.writeText(d).catch(() => {});
   }
-  function openWorkingDir() {
-    const d = settingsRef.current.workingDir;
+  function openWorkingDir(id?: string) {
+    const d = effectiveCwd(id);
     if (d) shell.open(d).catch(() => {});
+  }
+  async function setConvCwd(id: string) {
+    try {
+      const dir = await dialog.openFolder();
+      if (dir == null) return;
+      const conv = convsRef.current.find((c) => c.id === id);
+      if (conv) {
+        conv.cwd = dir || undefined;
+        persist();
+        bumpNow();
+      }
+    } catch {
+      /* cancelled */
+    }
   }
 
   function duplicateConversation(id: string) {
@@ -603,12 +621,15 @@ export function useChat() {
       : models.includes(cfg.model)
         ? cfg.model
         : models[0] || conv.model;
+    // Effective working directory: per-conversation override, else the global one.
+    const effCwd = conv.cwd || cfg.workingDir;
+    const toolCfg: Settings = effCwd === cfg.workingDir ? cfg : { ...cfg, workingDir: effCwd };
     let hitToolLimit = false;
     let producedEdits = false;
 
     try {
       await maybeCompact(conv, cfg);
-      const projectCtx = await loadProjectContext(cfg.workingDir);
+      const projectCtx = await loadProjectContext(effCwd);
       const mode = cfg.agentMode || 'chat';
       const modeText = mode === 'plan' ? PLAN_SYSTEM : mode === 'loop' ? LOOP_SYSTEM : '';
       const globalMem = cfg.globalMemory?.trim() ? 'Global user memory / instructions:\n\n' + cfg.globalMemory.trim() : '';
@@ -797,7 +818,7 @@ export function useChat() {
                 shell.runCancel(cancelId).catch(() => {});
               };
               try {
-                out = await executeTool(tc, cfg, { cancelId, signal: ctrl.signal });
+                out = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
               } catch (e: any) {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;
@@ -911,7 +932,7 @@ export function useChat() {
     let conv = getActive();
     if (!conv) conv = newConversation();
 
-    const attachments = await expandMentions(trimmed, settingsRef.current.workingDir);
+    const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
     const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
     if (attachments.length) userMsg.attachments = attachments;
     conv.messages.push(userMsg);
@@ -964,6 +985,7 @@ export function useChat() {
     toggleArchive,
     copyWorkingDir,
     openWorkingDir,
+    setConvCwd,
     duplicateConversation,
     exportConversation,
     clearActive,

@@ -332,6 +332,30 @@ export function Sidebar({
             >
               {t('exportChat')}
             </button>
+            <button
+              onClick={() => {
+                controller.setConvCwd(c.id);
+                setMenuId(null);
+              }}
+            >
+              {t('convSetCwd')}
+            </button>
+            <button
+              onClick={() => {
+                controller.copyWorkingDir(c.id);
+                setMenuId(null);
+              }}
+            >
+              {t('convCopyCwd')}
+            </button>
+            <button
+              onClick={() => {
+                controller.openWorkingDir(c.id);
+                setMenuId(null);
+              }}
+            >
+              {t('convOpenDir')}
+            </button>
             <div className="conv-subitem">
               <button className="conv-sub-parent">
                 <span>{t('moveToGroup')}</span>
