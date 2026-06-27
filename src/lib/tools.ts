@@ -1,6 +1,27 @@
-// Built-in agent tools, executed against the native fs/shell APIs.
-import { fs, shell } from '../api';
-import type { Settings, ToolCall } from './types';
+// Built-in agent tools, executed against the native fs/shell/http APIs.
+import { fs, http, shell } from '../api';
+import type { Settings, ToolCall, ToolPerm } from './types';
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
+
+/** Tool registry: drives the model schema, the permissions UI, and defaults. */
+export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
+  { name: 'read_file', defaultPerm: 'allow' },
+  { name: 'list_dir', defaultPerm: 'allow' },
+  { name: 'web_search', defaultPerm: 'allow' },
+  { name: 'write_file', defaultPerm: 'ask' },
+  { name: 'run_command', defaultPerm: 'ask' },
+];
+
+export function defaultToolPermissions(): Record<string, ToolPerm> {
+  const out: Record<string, ToolPerm> = {};
+  for (const tdef of TOOL_LIST) out[tdef.name] = tdef.defaultPerm;
+  return out;
+}
+
+export function toolPerm(name: string, settings: Settings): ToolPerm {
+  return settings.toolPermissions?.[name] ?? TOOL_LIST.find((t) => t.name === name)?.defaultPerm ?? 'ask';
+}
 
 export const TOOL_SCHEMAS = [
   {
@@ -28,6 +49,21 @@ export const TOOL_SCHEMAS = [
           path: { type: 'string', description: 'Directory path; defaults to the working directory.' },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_search',
+      description:
+        'Search the web for up-to-date information. Call this on your own whenever the question may depend on current events, recent data, prices, releases, news, library/API docs, or anything that could have changed after your training or that you are unsure about. Returns the top results with titles, URLs and snippets.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query.' },
+        },
+        required: ['query'],
       },
     },
   },
@@ -63,10 +99,6 @@ export const TOOL_SCHEMAS = [
   },
 ];
 
-export function toolNeedsApproval(name: string): boolean {
-  return name === 'write_file' || name === 'run_command';
-}
-
 function isAbsolute(p: string): boolean {
   return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\') || p.startsWith('/');
 }
@@ -90,6 +122,77 @@ function safeParse(argsJson: string): any {
   }
 }
 
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function cleanText(s: string): string {
+  return decodeEntities(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+}
+
+interface SearchHit {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+function formatResults(query: string, hits: SearchHit[]): string {
+  if (!hits.length) {
+    return `No results for "${query}". The search backend may be rate-limiting; try again, or set a SearXNG endpoint in Settings.`;
+  }
+  return (
+    `Web search results for "${query}":\n\n` +
+    hits.map((h, i) => `${i + 1}. ${h.title}\n   ${h.url}${h.snippet ? '\n   ' + h.snippet : ''}`).join('\n\n')
+  );
+}
+
+async function webSearch(query: string, settings: Settings): Promise<string> {
+  const endpoint = (settings.searchEndpoint || '').trim();
+
+  // SearXNG (e.g. self-hosted browser-search stack) — JSON API.
+  if (endpoint) {
+    const url = `${endpoint.replace(/\/+$/, '')}/search?format=json&q=${encodeURIComponent(query)}`;
+    const r = await http.get(url, { 'User-Agent': UA, Accept: 'application/json' });
+    if (r.status >= 400) throw new Error(`Search endpoint returned HTTP ${r.status}`);
+    let data: any;
+    try {
+      data = JSON.parse(r.body);
+    } catch {
+      throw new Error('Search endpoint did not return JSON (is it SearXNG with JSON enabled?)');
+    }
+    const hits: SearchHit[] = (data.results || [])
+      .slice(0, 6)
+      .map((x: any) => ({ title: x.title || x.url, url: x.url, snippet: x.content || '' }));
+    return formatResults(query, hits);
+  }
+
+  // Keyless default: DuckDuckGo lite.
+  const r = await http.request({
+    url: 'https://lite.duckduckgo.com/lite/',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
+    body: `q=${encodeURIComponent(query)}`,
+  });
+  if (r.status >= 400) throw new Error(`Web search failed (HTTP ${r.status})`);
+
+  const snippets = [...r.body.matchAll(/result-snippet[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cleanText(m[1]));
+  const linkRe = /<a\s+rel="nofollow"[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const hits: SearchHit[] = [];
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = linkRe.exec(r.body)) && hits.length < 6) {
+    hits.push({ url: decodeEntities(m[1]), title: cleanText(m[2]), snippet: snippets[i] || '' });
+    i++;
+  }
+  return formatResults(query, hits);
+}
+
 /** Short human-readable summary of a tool call for cards / approval prompts. */
 export function describeTool(tc: ToolCall): { title: string; detail: string } {
   const a = safeParse(tc.arguments);
@@ -98,6 +201,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Read file', detail: a.path || '' };
     case 'list_dir':
       return { title: 'List directory', detail: a.path || '.' };
+    case 'web_search':
+      return { title: 'Web search', detail: a.query || '' };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':
@@ -124,6 +229,11 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
         .sort((x, y) => Number(y.isDir) - Number(x.isDir) || x.name.localeCompare(y.name))
         .map((e) => (e.isDir ? '[DIR] ' : '      ') + e.name)
         .join('\n');
+    }
+    case 'web_search': {
+      const q = String(args.query || '').trim();
+      if (!q) throw new Error('query is required');
+      return truncate(await webSearch(q, settings), 8000);
     }
     case 'write_file': {
       const p = resolvePath(args.path, settings.workingDir);

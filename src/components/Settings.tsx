@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { dialog } from '../api';
-import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref } from '../lib/types';
+import { DEFAULT_SYSTEM_PROMPT, MODELS, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
+import { TOOL_LIST } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
+
+const PERMS: ToolPerm[] = ['allow', 'ask', 'off'];
+const PERM_KEY: Record<ToolPerm, string> = { allow: 'permAllow', ask: 'permAsk', off: 'permOff' };
 
 export function Settings({ controller, onClose }: { controller: ChatController; onClose: () => void }) {
   const { settings, updateSettings } = controller;
@@ -24,6 +28,9 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
     { id: 'dark', key: 'themeDark' },
   ];
 
+  const setPerm = (tool: string, perm: ToolPerm) =>
+    updateSettings({ toolPermissions: { ...(settings.toolPermissions || {}), [tool]: perm } });
+
   return (
     <div className="settings">
       <div className="settings-head">
@@ -34,6 +41,28 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
       </div>
 
       <div className="settings-body">
+        {/* Model */}
+        <div className="settings-section">
+          <div className="section-title">{t('secModel')}</div>
+          <div className="section-card">
+            <div className="model-cards">
+              {MODELS.map((m) => (
+                <button
+                  key={m.id}
+                  className={`model-card ${settings.model === m.id ? 'active' : ''}`}
+                  onClick={() => controller.setModel(m.id)}
+                >
+                  <div className="model-card-top">
+                    <span className="model-card-name">{m.label}</span>
+                    <span className="model-badge">{t(m.tools ? 'toolsBadge' : 'reasoningBadge')}</span>
+                  </div>
+                  <div className="model-card-blurb">{t(m.blurbKey)}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* API */}
         <div className="settings-section">
           <div className="section-title">{t('secApi')}</div>
@@ -81,6 +110,45 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
               </div>
               <p className="hint">{t('workingDirHint')}</p>
             </div>
+
+            <div className="field">
+              <label>{t('searchEndpointLabel')}</label>
+              <input
+                type="text"
+                value={settings.searchEndpoint}
+                spellCheck={false}
+                placeholder="http://localhost:8080"
+                onChange={(e) => updateSettings({ searchEndpoint: e.target.value })}
+              />
+              <p className="hint">{t('searchEndpointHint')}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tool permissions */}
+        <div className="settings-section">
+          <div className="section-title">{t('secPermissions')}</div>
+          <div className="section-card">
+            {TOOL_LIST.map((tool) => {
+              const perm = settings.toolPermissions?.[tool.name] ?? tool.defaultPerm;
+              return (
+                <div className="switch-row" key={tool.name}>
+                  <label>{t('tool_' + tool.name)}</label>
+                  <div className="seg">
+                    {PERMS.map((p) => (
+                      <button
+                        key={p}
+                        className={`seg-option ${perm === p ? 'active' : ''}`}
+                        onClick={() => setPerm(tool.name, p)}
+                      >
+                        {t(PERM_KEY[p])}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            <p className="hint">{t('permsHint')}</p>
           </div>
         </div>
 
@@ -102,22 +170,6 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
                 onChange={(e) => updateSettings({ temperature: Number(e.target.value) })}
               />
               <p className="hint">{t('temperatureHint')}</p>
-            </div>
-
-            <div className="field">
-              <div className="switch-row">
-                <div className="switch-text">
-                  <strong>{t('autoApproveLabel')}</strong>
-                  <span>{t('autoApproveDesc')}</span>
-                </div>
-                <button
-                  className={`switch ${settings.autoApprove ? 'on' : ''}`}
-                  role="switch"
-                  aria-checked={settings.autoApprove}
-                  onClick={() => updateSettings({ autoApprove: !settings.autoApprove })}
-                />
-              </div>
-              {settings.autoApprove && <p className="hint warn">⚠ {t('autoApproveWarn')}</p>}
             </div>
 
             <div className="field">

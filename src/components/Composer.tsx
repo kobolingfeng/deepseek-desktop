@@ -22,7 +22,6 @@ export function Composer({
 }) {
   const { t, lang } = useI18n();
   const [text, setText] = useState('');
-  const [searchOn, setSearchOn] = useState(false);
   const [listening, setListening] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
   const recRef = useRef<any>(null);
@@ -135,22 +134,6 @@ export function Composer({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     d="M6.4 3.3c-1.2 0-1.7.5-1.7 1.7v1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1c0 1.2.5 1.7 1.7 1.7M9.6 3.3c1.2 0 1.7.5 1.7 1.7v1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1c0 1.2-.5 1.7-1.7 1.7"
-                  />
-                </svg>
-              </button>
-              <button
-                className={`composer-tool ${searchOn ? 'active' : ''}`}
-                onClick={() => setSearchOn((v) => !v)}
-                title={t('webSearch')}
-                disabled={disabled}
-              >
-                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    d="M2 8h12M8 2c2.2 2 2.2 10 0 12M8 2c-2.2 2-2.2 10 0 12"
                   />
                 </svg>
               </button>

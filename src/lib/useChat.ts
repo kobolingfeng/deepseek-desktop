@@ -2,7 +2,7 @@ import { useReducer, useRef, useState } from 'react';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
-import { describeTool, executeTool, TOOL_SCHEMAS, toolNeedsApproval } from './tools';
+import { describeTool, executeTool, TOOL_SCHEMAS, toolPerm } from './tools';
 import type { Conversation, Message, ModelId, Settings, ToolCall } from './types';
 
 const MAX_TOOL_ITERS = 12;
@@ -139,12 +139,15 @@ export function useChat() {
         bumpNow();
 
         const useTools = conv.model !== 'deepseek-reasoner';
+        const activeTools = TOOL_SCHEMAS.filter(
+          (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
+        );
         const handle = streamChat(
           {
             messages: conv.messages.slice(0, -1),
             model: conv.model,
             settings: cfg,
-            tools: useTools ? TOOL_SCHEMAS : undefined,
+            tools: useTools && activeTools.length ? activeTools : undefined,
           },
           {
             onContent: (d) => {
@@ -184,13 +187,16 @@ export function useChat() {
         // Execute each requested tool, gating dangerous ones behind approval.
         for (const tc of asst.toolCalls) {
           if (stoppedRef.current) break;
-          const need = toolNeedsApproval(tc.name) && !cfg.autoApprove;
+          const perm = toolPerm(tc.name, settingsRef.current);
           let approved = true;
-          if (need) approved = await requestApproval(tc);
+          if (perm === 'ask') approved = await requestApproval(tc);
 
           let out = '';
           let isErr = false;
-          if (!approved) {
+          if (perm === 'off') {
+            out = 'This tool is disabled by the user.';
+            isErr = true;
+          } else if (!approved) {
             out = 'User denied this action.';
             isErr = true;
           } else {

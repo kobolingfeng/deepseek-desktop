@@ -46,6 +46,8 @@ export interface Conversation {
 
 export type ThemePref = 'system' | 'light' | 'dark';
 export type Lang = 'en' | 'zh';
+/** Per-tool permission: run freely / ask each time / disabled. */
+export type ToolPerm = 'allow' | 'ask' | 'off';
 
 export interface Settings {
   apiKey: string;
@@ -54,8 +56,10 @@ export interface Settings {
   systemPrompt: string;
   /** Directory tool calls operate in; relative paths resolve against it. */
   workingDir: string;
-  /** Skip the approval gate for write_file / run_command. */
-  autoApprove: boolean;
+  /** Per-tool permissions (keyed by tool name). */
+  toolPermissions: Record<string, ToolPerm>;
+  /** Optional SearXNG endpoint for web_search; empty = keyless DuckDuckGo. */
+  searchEndpoint: string;
   /** Sampling temperature for deepseek-chat. */
   temperature: number;
   /** UI language. */
@@ -77,7 +81,14 @@ export const DEFAULT_SETTINGS: Settings = {
   model: 'deepseek-chat',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   workingDir: '',
-  autoApprove: false,
+  toolPermissions: {
+    read_file: 'allow',
+    list_dir: 'allow',
+    web_search: 'allow',
+    write_file: 'ask',
+    run_command: 'ask',
+  },
+  searchEndpoint: '',
   temperature: 1.0,
   language: 'en',
   theme: 'system',

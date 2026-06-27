@@ -1155,6 +1155,43 @@ textarea {
   padding-top: var(--space-3);
 }
 
+/* Model selector cards */
+.model-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.model-card {
+  text-align: left;
+  padding: 13px 15px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--bg-app);
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.model-card:hover {
+  border-color: var(--border-strong);
+}
+.model-card.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.model-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+.model-card-name {
+  font-weight: var(--fw-semibold);
+  font-size: var(--text-base);
+}
+.model-card-blurb {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
 /* ============ Markdown ============ */
 .markdown {
   font-size: var(--text-md);
