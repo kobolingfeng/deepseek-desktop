@@ -450,19 +450,25 @@ function formatResults(query: string, hits: SearchHit[]): string {
 // Prefer the WebView2 renderer's own fetch (real Chromium fingerprint, and with
 // web-security disabled it can read cross-origin) so search engines don't serve
 // the bot-challenge they give raw WinHttp. Fall back to native WinHttp.
-async function timedFetch(url: string, init: RequestInit, ms = 20000): Promise<Response> {
+async function timedFetch(url: string, init: RequestInit, ms = 20000, extSignal?: AbortSignal): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
+  const onAbort = () => ctrl.abort();
+  if (extSignal) {
+    if (extSignal.aborted) ctrl.abort();
+    else extSignal.addEventListener('abort', onAbort);
+  }
   try {
     return await fetch(url, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(timer);
+    extSignal?.removeEventListener('abort', onAbort);
   }
 }
 
-async function browserGet(url: string): Promise<{ status: number; body: string; finalUrl: string }> {
+async function browserGet(url: string, signal?: AbortSignal): Promise<{ status: number; body: string; finalUrl: string }> {
   try {
-    const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } });
+    const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } }, 20000, signal);
     return { status: r.status, body: await r.text(), finalUrl: r.url || url };
   } catch {
     const r = await http.get(url, { 'User-Agent': UA });
@@ -470,13 +476,18 @@ async function browserGet(url: string): Promise<{ status: number; body: string; 
   }
 }
 
-async function browserPostForm(url: string, body: string): Promise<{ status: number; body: string }> {
+async function browserPostForm(url: string, body: string, signal?: AbortSignal): Promise<{ status: number; body: string }> {
   try {
-    const r = await timedFetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
+    const r = await timedFetch(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      },
+      20000,
+      signal,
+    );
     return { status: r.status, body: await r.text() };
   } catch {
     const r = await http.request({
@@ -521,13 +532,13 @@ function parseDdgLite(body: string): SearchHit[] {
   return hits;
 }
 
-async function webSearch(query: string, settings: Settings): Promise<string> {
+async function webSearch(query: string, settings: Settings, signal?: AbortSignal): Promise<string> {
   const endpoint = (settings.searchEndpoint || '').trim();
 
   // SearXNG (e.g. self-hosted browser-search stack) — JSON API.
   if (endpoint) {
     const url = `${endpoint.replace(/\/+$/, '')}/search?format=json&q=${encodeURIComponent(query)}`;
-    const r = await browserGet(url);
+    const r = await browserGet(url, signal);
     if (r.status >= 400) throw new Error(`Search endpoint returned HTTP ${r.status}`);
     let data: any;
     try {
@@ -545,7 +556,7 @@ async function webSearch(query: string, settings: Settings): Promise<string> {
   // empty/challenge page that succeeds on a second try.
   let lastStatus = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const r = await browserPostForm('https://lite.duckduckgo.com/lite/', `q=${encodeURIComponent(query)}`);
+    const r = await browserPostForm('https://lite.duckduckgo.com/lite/', `q=${encodeURIComponent(query)}`, signal);
     lastStatus = r.status;
     if (r.status < 400) {
       const hits = parseDdgLite(r.body);
@@ -590,7 +601,12 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
   }
 }
 
-export async function executeTool(tc: ToolCall, settings: Settings): Promise<string> {
+export interface ToolCtx {
+  cancelId?: number;
+  signal?: AbortSignal;
+}
+
+export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx = {}): Promise<string> {
   const args = safeParse(tc.arguments);
   switch (tc.name) {
     case 'read_file': {
@@ -618,13 +634,13 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
     case 'web_search': {
       const q = String(args.query || '').trim();
       if (!q) throw new Error('query is required');
-      return truncate(await webSearch(q, settings), 8000);
+      return truncate(await webSearch(q, settings, ctx.signal), 8000);
     }
     case 'read_url': {
       const url = String(args.url || '').trim();
       if (!/^https?:\/\//i.test(url)) throw new Error('a full http(s) url is required');
       if (isPrivateUrl(url)) throw new Error('Refusing to fetch a localhost / private-network address.');
-      const r = await browserGet(url);
+      const r = await browserGet(url, ctx.signal);
       if (isPrivateUrl(r.finalUrl)) throw new Error('Refusing: the URL redirected to a localhost / private-network address.');
       if (r.status >= 400) throw new Error(`Failed to open page (HTTP ${r.status})`);
       const raw = r.body.length > 2_000_000 ? r.body.slice(0, 2_000_000) : r.body;
@@ -726,7 +742,7 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
       if (!cmd) throw new Error('command is required');
       const wd = (settings.workingDir || '').replace(/"/g, ''); // " is illegal in Windows paths; strip to avoid cmd breakout
       const full = wd ? `cd /d "${wd}" && ${cmd}` : cmd;
-      const r = await shell.run('cmd.exe', ['/c', full]);
+      const r = await shell.run('cmd.exe', ['/c', full], ctx.cancelId);
       let out = r.stdout || '';
       if (r.stderr) out += (out ? '\n' : '') + '[stderr]\n' + r.stderr;
       out = out.trim();

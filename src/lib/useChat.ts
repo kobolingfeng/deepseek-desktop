@@ -67,6 +67,8 @@ async function expandMentions(text: string, dir: string): Promise<{ path: string
 
 const MAX_TOOL_ITERS = 12;
 const LOOP_MAX_ITERS = 25;
+let cancelSeq = 1;
+const nextCancelId = () => cancelSeq++;
 const PLAN_SYSTEM =
   'You are in PLAN MODE. Investigate with read-only tools if needed, then reply with a concise numbered plan of the steps you would take. Do NOT create or edit files or run commands — make no changes. Stop after presenting the plan.';
 const LOOP_SYSTEM =
@@ -206,6 +208,7 @@ export function useChat() {
   const generatingRef = useRef(false);
   const stoppedRef = useRef(false);
   const focusedRef = useRef(true);
+  const toolCancelRef = useRef<(() => void) | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -477,6 +480,7 @@ export function useChat() {
   function stop() {
     stoppedRef.current = true;
     cancelRef.current?.();
+    toolCancelRef.current?.(); // kill an in-flight tool (shell process / fetch)
     if (approvalResolver.current) resolveApproval(false);
   }
 
@@ -730,11 +734,23 @@ export function useChat() {
               out = 'User denied this action.';
               isErr = true;
             } else {
+              const ctrl = new AbortController();
+              const cancelId = nextCancelId();
+              toolCancelRef.current = () => {
+                try {
+                  ctrl.abort();
+                } catch {
+                  /* ignore */
+                }
+                shell.runCancel(cancelId).catch(() => {});
+              };
               try {
-                out = await executeTool(tc, cfg);
+                out = await executeTool(tc, cfg, { cancelId, signal: ctrl.signal });
               } catch (e: any) {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;
+              } finally {
+                toolCancelRef.current = null;
               }
             }
           }

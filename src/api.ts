@@ -130,10 +130,35 @@ export interface RunResult {
     stderr: string;
 }
 
+let _runSeq = 1;
+
 export const shell = {
     open:    (url: string) => invoke<boolean>('shell.open', { url }),
     execute: (program: string, args?: string[]) => invoke<boolean>('shell.execute', { program, args: args ?? [] }),
-    run:     (program: string, args?: string[]) => invoke<RunResult>('shell.run', { program, args: args ?? [] }),
+    /**
+     * Run a process and capture stdout/stderr. Runs off the UI thread natively
+     * (result delivered via the shell.runResult event). Pass a cancelId to allow
+     * killing it (and its child process tree) later via runCancel.
+     */
+    run: (program: string, args?: string[], cancelId?: number): Promise<RunResult> => {
+        const runId = _runSeq++;
+        return new Promise<RunResult>((resolve) => {
+            const off = on<{ runId: number; exitCode: number; stdout: string; stderr: string }>(
+                'shell.runResult',
+                (d) => {
+                    if (!d || d.runId !== runId) return;
+                    off();
+                    resolve({ exitCode: d.exitCode, stdout: d.stdout, stderr: d.stderr });
+                },
+            );
+            invoke('shell.run', { runId, program, args: args ?? [], cancelId: cancelId ?? -1 }).catch((e) => {
+                off();
+                resolve({ exitCode: -1, stdout: '', stderr: e instanceof Error ? e.message : String(e) });
+            });
+        });
+    },
+    /** Kill an in-flight run() (and its child process tree) by its cancelId. */
+    runCancel: (id: number) => invoke<{ ok: boolean }>('shell.runCancel', { id }),
 };
 
 // ── App ───────────────────────────────────────

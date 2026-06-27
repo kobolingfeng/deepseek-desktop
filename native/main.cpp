@@ -318,6 +318,7 @@ static int g_nextWatchId = 1;
 
 #define WM_FILE_CHANGED (WM_USER + 2)
 #define WM_STREAM_EVENT (WM_USER + 3)
+#define WM_SHELL_DONE   (WM_USER + 4)
 
 // Child windows
 struct ChildWindow {
@@ -2280,10 +2281,18 @@ static void reg_extras() {
         return true;
     });
 
-    // Shell.run with stdout/stderr capture
+    // ---- cancellable shell.run process registry ----
+    static std::mutex g_procMutex;
+    static std::unordered_map<int, DWORD> g_procPids; // cancelId -> root process id
+
+    // Shell.run with stdout/stderr capture. Runs on a worker thread (so it never
+    // blocks the UI/dispatch thread) and returns its result via the shell.runResult
+    // event correlated by runId; cancellable via shell.runCancel.
     ipc_on("shell.run", [](const json& a) -> json {
         auto program = a.value("program", std::string{});
         if (program.empty()) throw std::runtime_error("program is required");
+        int cancelId = a.value("cancelId", -1);
+        int runId = a.value("runId", -1);
         std::wstring cmdLine = quote_windows_arg(U2W(program));
         if (a.contains("args") && a["args"].is_array()) {
             for (auto& arg : a["args"]) {
@@ -2293,63 +2302,107 @@ static void reg_extras() {
             }
         }
 
-        SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-        HANDLE hOutR, hOutW, hErrR, hErrW;
-        CreatePipe(&hOutR, &hOutW, &sa, 0);
-        CreatePipe(&hErrR, &hErrW, &sa, 0);
-        SetHandleInformation(hOutR, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(hErrR, HANDLE_FLAG_INHERIT, 0);
+        std::thread([cmdLine, cancelId, runId]() {
+            auto post = [&](int exitCode, const std::string& out, const std::string& err) {
+                auto* p = new json{{"runId", runId}, {"exitCode", exitCode}, {"stdout", out}, {"stderr", err}};
+                if (!PostMessageW(g_hwnd, WM_SHELL_DONE, 0, (LPARAM)p)) delete p;
+            };
 
-        STARTUPINFOW si{sizeof(si)};
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = hOutW;
-        si.hStdError = hErrW;
-        PROCESS_INFORMATION pi{};
+            SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+            HANDLE hOutR, hOutW, hErrR, hErrW;
+            CreatePipe(&hOutR, &hOutW, &sa, 0);
+            CreatePipe(&hErrR, &hErrW, &sa, 0);
+            SetHandleInformation(hOutR, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(hErrR, HANDLE_FLAG_INHERIT, 0);
 
-        std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
-        cmd.push_back(0);
-        if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
-            CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-            CloseHandle(hOutR); CloseHandle(hOutW);
-            CloseHandle(hErrR); CloseHandle(hErrW);
-            throw std::runtime_error("Failed to start process");
+            STARTUPINFOW si{sizeof(si)};
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdOutput = hOutW;
+            si.hStdError = hErrW;
+            PROCESS_INFORMATION pi{};
+
+            std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
+            cmd.push_back(0);
+            if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(hOutR); CloseHandle(hOutW);
+                CloseHandle(hErrR); CloseHandle(hErrW);
+                post(-1, "", "Failed to start process");
+                return;
+            }
+            CloseHandle(hOutW);
+            CloseHandle(hErrW);
+
+            if (cancelId >= 0) {
+                std::lock_guard<std::mutex> lk(g_procMutex);
+                g_procPids[cancelId] = pi.dwProcessId;
+            }
+
+            auto readPipe = [](HANDLE h) -> std::string {
+                std::string result;
+                char buf[4096];
+                DWORD rd;
+                while (ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
+                    result.append(buf, rd);
+                CloseHandle(h);
+                return result;
+            };
+
+            struct PipeCtx { HANDLE h; std::string data; };
+            auto* errCtx = new PipeCtx{hErrR, {}};
+            HANDLE hErrThread = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
+                auto* c = (PipeCtx*)p;
+                char buf[4096]; DWORD rd;
+                while (ReadFile(c->h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
+                    c->data.append(buf, rd);
+                CloseHandle(c->h);
+                return 0;
+            }, errCtx, 0, nullptr);
+            auto stdout_ = readPipe(hOutR);
+            WaitForSingleObject(hErrThread, INFINITE);
+            CloseHandle(hErrThread);
+            auto stderr_ = std::move(errCtx->data);
+            delete errCtx;
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            DWORD exitCode = 0;
+            GetExitCodeProcess(pi.hProcess, &exitCode);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            if (cancelId >= 0) {
+                std::lock_guard<std::mutex> lk(g_procMutex);
+                g_procPids.erase(cancelId);
+            }
+
+            post((int)exitCode, stdout_, stderr_);
+        }).detach();
+
+        return json{{"ok", true}};
+    });
+
+    // Cancel an in-flight shell.run by killing its process tree (taskkill /T).
+    ipc_on("shell.runCancel", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        DWORD pid = 0;
+        {
+            std::lock_guard<std::mutex> lk(g_procMutex);
+            auto it = g_procPids.find(id);
+            if (it != g_procPids.end()) pid = it->second;
         }
-        CloseHandle(hOutW);
-        CloseHandle(hErrW);
-
-        auto readPipe = [](HANDLE h) -> std::string {
-            std::string result;
-            char buf[4096];
-            DWORD rd;
-            while (ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                result.append(buf, rd);
-            CloseHandle(h);
-            return result;
-        };
-
-        // Read stderr in a background thread to prevent pipe deadlock
-        struct PipeCtx { HANDLE h; std::string data; };
-        auto* errCtx = new PipeCtx{hErrR, {}};
-        HANDLE hErrThread = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
-            auto* c = (PipeCtx*)p;
-            char buf[4096]; DWORD rd;
-            while (ReadFile(c->h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                c->data.append(buf, rd);
-            CloseHandle(c->h);
-            return 0;
-        }, errCtx, 0, nullptr);
-        auto stdout_ = readPipe(hOutR);
-        WaitForSingleObject(hErrThread, INFINITE);
-        CloseHandle(hErrThread);
-        auto stderr_ = std::move(errCtx->data);
-        delete errCtx;
-        WaitForSingleObject(pi.hProcess, INFINITE);
-        DWORD exitCode;
-        GetExitCodeProcess(pi.hProcess, &exitCode);
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-
-        return json{{"exitCode", (int)exitCode}, {"stdout", stdout_}, {"stderr", stderr_}};
+        if (pid) {
+            std::wstring kill = L"taskkill /T /F /PID " + std::to_wstring(pid);
+            STARTUPINFOW si{sizeof(si)};
+            PROCESS_INFORMATION pi{};
+            std::vector<wchar_t> c(kill.begin(), kill.end());
+            c.push_back(0);
+            if (CreateProcessW(nullptr, c.data(), nullptr, nullptr, FALSE,
+                CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                WaitForSingleObject(pi.hProcess, 5000);
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+            }
+        }
+        return json{{"ok", true}};
     });
 }
 
@@ -2808,6 +2861,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_STREAM_EVENT: {
         auto* data = reinterpret_cast<json*>(l);
         ipc_emit("http.stream", *data);
+        delete data;
+        return 0;
+    }
+    case WM_SHELL_DONE: {
+        auto* data = reinterpret_cast<json*>(l);
+        ipc_emit("shell.runResult", *data);
         delete data;
         return 0;
     }
