@@ -132,6 +132,52 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
   );
 }
 
+// Auto-linkify bare file paths in rendered text (remark-gfm already links URLs).
+// A path = optional drive/UNC/relative prefix + ≥1 separator + a final .ext.
+const PATH_RE =
+  /(?:[A-Za-z]:[\\/]|\\\\|\.{0,2}[\\/])?[\w.+-]+(?:[\\/][\w.+-]+)+\.[A-Za-z][\w]{0,9}/g;
+
+function splitPathText(value: string): any[] {
+  const out: any[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  PATH_RE.lastIndex = 0;
+  while ((m = PATH_RE.exec(value))) {
+    const start = m.index;
+    // Skip if preceded by a char that means it's part of a URL/email/word.
+    if (start > 0 && /[\w@:/\\]/.test(value[start - 1])) continue;
+    if (start > last) out.push({ type: 'text', value: value.slice(last, start) });
+    out.push({
+      type: 'element',
+      tagName: 'a',
+      properties: { href: m[0] },
+      children: [{ type: 'text', value: m[0] }],
+    });
+    last = start + m[0].length;
+  }
+  if (!out.length) return [{ type: 'text', value }];
+  if (last < value.length) out.push({ type: 'text', value: value.slice(last) });
+  return out;
+}
+
+function rehypeFilePaths() {
+  const walk = (node: any, skip: boolean) => {
+    if (!node || !node.children) return;
+    const stop = skip || node.tagName === 'a' || node.tagName === 'code' || node.tagName === 'pre';
+    const next: any[] = [];
+    for (const child of node.children) {
+      if (child.type === 'text' && !stop) {
+        next.push(...splitPathText(child.value));
+      } else {
+        walk(child, stop);
+        next.push(child);
+      }
+    }
+    node.children = next;
+  };
+  return (tree: any) => walk(tree, false);
+}
+
 export const Markdown = memo(function Markdown({
   text,
   highlight = true,
@@ -143,7 +189,7 @@ export const Markdown = memo(function Markdown({
     <div className="markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={highlight ? [[rehypeHighlight, { detect: true, ignoreMissing: true }]] : []}
+        rehypePlugins={[...(highlight ? [[rehypeHighlight, { detect: true, ignoreMissing: true }]] : []), rehypeFilePaths] as any}
         components={{ pre: CodeBlock as any, a: ExternalLink as any }}
       >
         {text}
