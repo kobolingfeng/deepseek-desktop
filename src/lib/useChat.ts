@@ -67,7 +67,7 @@ async function expandMentions(text: string, dir: string): Promise<{ path: string
   return out;
 }
 
-const MAX_TOOL_ITERS = 12;
+const MAX_TOOL_ITERS = 20;
 const GOAL_MAX_ITERS = 25;
 let cancelSeq = 1;
 const nextCancelId = () => cancelSeq++;
@@ -542,8 +542,8 @@ export function useChat() {
       return;
     }
     try {
-      const safeCwd = cwd.replace(/"/g, '');
-      const r = await shell.run('cmd.exe', ['/c', `cd /d "${safeCwd}" && git --no-pager diff`]);
+      const safeCwd = cwd.replace(/"/g, '').trim();
+      const r = await shell.run('cmd.exe', ['/c', 'git --no-pager diff'], undefined, safeCwd);
       const out = (r.stdout || '').trim();
       if (out) push('```diff\n' + out.slice(0, 20000) + '\n```');
       else push((r.stderr || '').trim() || 'No changes (clean working tree, or not a git repository).');

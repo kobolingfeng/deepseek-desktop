@@ -262,7 +262,7 @@ export const TOOL_SCHEMAS = [
     function: {
       name: 'run_command',
       description:
-        'Run a shell command via cmd.exe in the working directory and return stdout/stderr. Requires user approval.',
+        'Run a shell command via cmd.exe in the working directory and return stdout/stderr. Use cmd/batch syntax (dir, type, set, &&), NOT PowerShell cmdlets. Requires user approval.',
       parameters: {
         type: 'object',
         properties: {
@@ -742,9 +742,10 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     case 'run_command': {
       const cmd = String(args.command || '').trim();
       if (!cmd) throw new Error('command is required');
-      const wd = (settings.workingDir || '').replace(/"/g, ''); // " is illegal in Windows paths; strip to avoid cmd breakout
-      const full = wd ? `cd /d "${wd}" && ${cmd}` : cmd;
-      const r = await shell.run('cmd.exe', ['/c', full], ctx.cancelId);
+      // Run in the working dir via the process CWD, not a `cd /d "..."` prefix
+      // (cmd.exe mis-parses the \" that native arg-quoting emits around the path).
+      const wd = (settings.workingDir || '').replace(/"/g, '').trim();
+      const r = await shell.run('cmd.exe', ['/c', cmd], ctx.cancelId, wd || undefined);
       let out = r.stdout || '';
       if (r.stderr) out += (out ? '\n' : '') + '[stderr]\n' + r.stderr;
       out = out.trim();

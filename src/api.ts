@@ -142,7 +142,7 @@ export const shell = {
      * (result delivered via the shell.runResult event). Pass a cancelId to allow
      * killing it (and its child process tree) later via runCancel.
      */
-    run: (program: string, args?: string[], cancelId?: number): Promise<RunResult> => {
+    run: (program: string, args?: string[], cancelId?: number, cwd?: string): Promise<RunResult> => {
         const runId = _runSeq++;
         return new Promise<RunResult>((resolve) => {
             const off = on<{ runId: number; exitCode: number; stdout: string; stderr: string }>(
@@ -153,7 +153,7 @@ export const shell = {
                     resolve({ exitCode: d.exitCode, stdout: d.stdout, stderr: d.stderr });
                 },
             );
-            invoke('shell.run', { runId, program, args: args ?? [], cancelId: cancelId ?? -1 }).catch((e) => {
+            invoke('shell.run', { runId, program, args: args ?? [], cancelId: cancelId ?? -1, cwd: cwd ?? '' }).catch((e) => {
                 off();
                 resolve({ exitCode: -1, stdout: '', stderr: e instanceof Error ? e.message : String(e) });
             });

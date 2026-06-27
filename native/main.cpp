@@ -2384,6 +2384,9 @@ static void reg_extras() {
         if (program.empty()) throw std::runtime_error("program is required");
         int cancelId = a.value("cancelId", -1);
         int runId = a.value("runId", -1);
+        // Working directory: set as the process's real CWD (lpCurrentDirectory) rather
+        // than a `cd /d "..."` prefix — cmd.exe can't parse the \" that arg-quoting emits.
+        std::wstring cwdW = U2W(a.value("cwd", std::string{}));
         std::wstring cmdLine = quote_windows_arg(U2W(program));
         if (a.contains("args") && a["args"].is_array()) {
             for (auto& arg : a["args"]) {
@@ -2401,7 +2404,7 @@ static void reg_extras() {
             g_procs[cancelId] = entry;
         }
 
-        std::thread([cmdLine, cancelId, runId, entry]() {
+        std::thread([cmdLine, cwdW, cancelId, runId, entry]() {
             auto post = [&](int exitCode, const std::string& out, const std::string& err) {
                 auto* p = new json{{"runId", runId}, {"exitCode", exitCode}, {"stdout", out}, {"stderr", err}};
                 if (!PostMessageW(g_hwnd, WM_SHELL_DONE, 0, (LPARAM)p)) delete p;
@@ -2428,7 +2431,7 @@ static void reg_extras() {
             std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
             cmd.push_back(0);
             if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
-                CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+                CREATE_NO_WINDOW, nullptr, (cwdW.empty() ? nullptr : cwdW.c_str()), &si, &pi)) {
                 CloseHandle(hOutR); CloseHandle(hOutW);
                 CloseHandle(hErrR); CloseHandle(hErrW);
                 unregister();
