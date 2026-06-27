@@ -11,7 +11,7 @@ import type { Message as Msg } from '../lib/types';
 // sent to the model — they're just not shown. Flip SHOW_REASONING / edit the set
 // to bring rows back.
 const SHOW_REASONING = false;
-const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir']);
+const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir', 'web_search']);
 
 function clockTime(ts: number, lang: Lang): string {
   const d = new Date(ts);
