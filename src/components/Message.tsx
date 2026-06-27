@@ -256,7 +256,10 @@ export function Message({
           </div>
         )}
 
-        {!streaming && message.content && (
+        {/* Footer only on the final answer (content, no tool calls) — not on
+            intermediate agent steps that narrate while calling tools, which made
+            the turn look like it ended/restarted mid-way. */}
+        {!streaming && message.content && !(message.toolCalls && message.toolCalls.length) && (
           <MessageActions content={message.content} meta={metaLine(message, lang)} />
         )}
       </div>
