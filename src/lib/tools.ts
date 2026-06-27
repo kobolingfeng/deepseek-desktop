@@ -152,13 +152,45 @@ function formatResults(query: string, hits: SearchHit[]): string {
   );
 }
 
+// Prefer the WebView2 renderer's own fetch (real Chromium fingerprint, and with
+// web-security disabled it can read cross-origin) so search engines don't serve
+// the bot-challenge they give raw WinHttp. Fall back to native WinHttp.
+async function browserGet(url: string): Promise<{ status: number; body: string }> {
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json, text/html' } });
+    return { status: r.status, body: await r.text() };
+  } catch {
+    const r = await http.get(url, { 'User-Agent': UA });
+    return { status: r.status, body: r.body };
+  }
+}
+
+async function browserPostForm(url: string, body: string): Promise<{ status: number; body: string }> {
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    return { status: r.status, body: await r.text() };
+  } catch {
+    const r = await http.request({
+      url,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
+      body,
+    });
+    return { status: r.status, body: r.body };
+  }
+}
+
 async function webSearch(query: string, settings: Settings): Promise<string> {
   const endpoint = (settings.searchEndpoint || '').trim();
 
   // SearXNG (e.g. self-hosted browser-search stack) — JSON API.
   if (endpoint) {
     const url = `${endpoint.replace(/\/+$/, '')}/search?format=json&q=${encodeURIComponent(query)}`;
-    const r = await http.get(url, { 'User-Agent': UA, Accept: 'application/json' });
+    const r = await browserGet(url);
     if (r.status >= 400) throw new Error(`Search endpoint returned HTTP ${r.status}`);
     let data: any;
     try {
@@ -173,12 +205,7 @@ async function webSearch(query: string, settings: Settings): Promise<string> {
   }
 
   // Keyless default: DuckDuckGo lite.
-  const r = await http.request({
-    url: 'https://lite.duckduckgo.com/lite/',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': UA },
-    body: `q=${encodeURIComponent(query)}`,
-  });
+  const r = await browserPostForm('https://lite.duckduckgo.com/lite/', `q=${encodeURIComponent(query)}`);
   if (r.status >= 400) throw new Error(`Web search failed (HTTP ${r.status})`);
 
   const snippets = [...r.body.matchAll(/result-snippet[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cleanText(m[1]));

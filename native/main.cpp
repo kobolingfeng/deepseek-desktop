@@ -2645,8 +2645,9 @@ static void init_webview() {
     auto dataDir = app_data_dir();
     auto options = Microsoft::WRL::Make<CoreWebView2EnvironmentOptions>();
     options->put_AdditionalBrowserArguments(
-        L"--disable-features=msSmartScreenProtection,RendererCodeIntegrity,msWebOOUI,msPdfOOUI"
-        L" --disable-background-networking --no-proxy-server");
+        L"--disable-features=msSmartScreenProtection,RendererCodeIntegrity,msWebOOUI,msPdfOOUI,IsolateOrigins,site-per-process"
+        L" --disable-background-networking --no-proxy-server"
+        L" --disable-web-security --disable-site-isolation-trials");
     CreateCoreWebView2EnvironmentWithOptions(nullptr, dataDir.c_str(), options.Get(),
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
         [](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
