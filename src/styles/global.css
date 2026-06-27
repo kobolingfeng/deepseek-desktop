@@ -2067,3 +2067,23 @@ textarea {
   outline-offset: -2px;
   border-radius: var(--radius-md);
 }
+/* Custom drag image (snapshotted off-screen at dragstart, then follows the cursor). */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: -1000px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  padding: 7px 13px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow-lg);
+}

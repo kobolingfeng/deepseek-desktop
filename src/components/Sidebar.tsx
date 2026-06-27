@@ -226,6 +226,17 @@ export function Sidebar({
         onDragStart={(e) => {
           e.dataTransfer.setData('text/conv', c.id);
           e.dataTransfer.effectAllowed = 'move';
+          // Custom drag label that follows the cursor (instead of the row snapshot).
+          const ghost = document.createElement('div');
+          ghost.className = 'drag-ghost';
+          ghost.textContent = '💬  ' + c.title;
+          document.body.appendChild(ghost);
+          try {
+            e.dataTransfer.setDragImage(ghost, 14, 14);
+          } catch {
+            /* ignore */
+          }
+          setTimeout(() => ghost.remove(), 0);
           setDragId(c.id);
         }}
         onDragEnd={() => {
