@@ -6,8 +6,11 @@ export type DiffRow = { t: 'ctx' | 'del' | 'add'; s: string };
 export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
   // Cap input so a huge write_file/edit_file arg can't freeze render (recomputed often).
   const CAP = 200000;
-  const a = (oldStr.length > CAP ? oldStr.slice(0, CAP) : oldStr).split('\n');
-  const b = (newStr.length > CAP ? newStr.slice(0, CAP) : newStr).split('\n');
+  // An empty string is zero lines, not one ('' .split('\n') === ['']); otherwise
+  // writing a new file or clearing one shows a phantom -1 / +1 for an empty line.
+  const split = (s: string) => (s === '' ? [] : (s.length > CAP ? s.slice(0, CAP) : s).split('\n'));
+  const a = split(oldStr);
+  const b = split(newStr);
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let endA = a.length;
@@ -21,7 +24,7 @@ export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
   for (let i = start; i < endA; i++) rows.push({ t: 'del', s: a[i] });
   for (let i = start; i < endB; i++) rows.push({ t: 'add', s: b[i] });
   for (let i = endA; i < a.length; i++) rows.push({ t: 'ctx', s: a[i] });
-  return rows.slice(0, 400);
+  return rows; // full diff; callers cap rows for display, but counts stay accurate
 }
 
 export interface FileChange {
@@ -58,9 +61,10 @@ export function extractChanges(messages: Message[]): FileChange[] {
       out.push({
         path: a.path || '(unknown)',
         kind: tc.name === 'edit_file' ? 'edit' : tc.name === 'write_file' ? 'write' : 'excel',
+        // Count from the full diff; only the stored rows are capped for display.
         additions: diff.filter((r) => r.t === 'add').length,
         deletions: diff.filter((r) => r.t === 'del').length,
-        diff,
+        diff: diff.slice(0, 400),
         ok,
       });
     }

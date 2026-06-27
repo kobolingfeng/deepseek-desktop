@@ -19,8 +19,9 @@ const ICONS: Record<string, string> = {
 type DiffRow = { t: 'ctx' | 'del' | 'add'; s: string };
 
 function lineDiff(oldStr: string, newStr: string): DiffRow[] {
-  const a = oldStr.split('\n');
-  const b = newStr.split('\n');
+  // Empty string = zero lines (avoids a phantom +1/-1 for new/cleared files).
+  const a = oldStr === '' ? [] : oldStr.split('\n');
+  const b = newStr === '' ? [] : newStr.split('\n');
   let start = 0;
   while (start < a.length && start < b.length && a[start] === b[start]) start++;
   let endA = a.length;
