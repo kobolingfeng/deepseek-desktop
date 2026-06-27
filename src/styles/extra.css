@@ -456,3 +456,45 @@
   color: var(--accent);
   flex-shrink: 0;
 }
+
+/* ── User message: lighter, no bubble background (Codex/Claude-like) ── */
+.user-bubble {
+  background: transparent;
+  padding: 0 2px;
+  border-radius: 0;
+}
+
+/* ── Thinking block: render like a tool-call row, not a separate boxed block ── */
+.thinking {
+  margin: 3px 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+.thinking-head {
+  padding: 3px 5px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  font-weight: var(--fw-medium);
+}
+.thinking-head:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.thinking-icon {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.thinking-body {
+  margin: 2px 0 6px 22px;
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 340px;
+  overflow-y: auto;
+}
