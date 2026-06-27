@@ -140,9 +140,6 @@ export function Message({
 
   return (
     <div className="msg assistant">
-      <div className="avatar" aria-hidden>
-        🐋
-      </div>
       <div className="assistant-body">
         {message.reasoning && <ThinkingBlock text={message.reasoning} streaming={streaming && !message.content} />}
 
