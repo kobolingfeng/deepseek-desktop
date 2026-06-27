@@ -63,6 +63,8 @@ export interface Conversation {
   todos?: TodoItem[];
   /** Id of the user-defined group this chat belongs to, if any. */
   groupId?: string;
+  /** Archived chats are hidden from the main list (shown under "Archived"). */
+  archived?: boolean;
 }
 
 /** A user-defined conversation group (folder). */

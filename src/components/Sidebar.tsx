@@ -83,6 +83,7 @@ export function Sidebar({
   const [groupRenameText, setGroupRenameText] = useState('');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const userGroups = controller.groups;
 
   useEffect(() => {
@@ -102,9 +103,10 @@ export function Sidebar({
   const sections: Section[] = (() => {
     const q = query.trim().toLowerCase();
     const filtered = q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
+    const live = filtered.filter((c) => !c.archived);
     const groupIds = new Set(userGroups.map((g) => g.id));
-    const pinned = filtered.filter((c) => c.pinned).sort(byRecent);
-    const rest = filtered.filter((c) => !c.pinned);
+    const pinned = live.filter((c) => c.pinned).sort(byRecent);
+    const rest = live.filter((c) => !c.pinned);
 
     const out: Section[] = [];
     if (pinned.length) out.push({ kind: 'list', key: 'pinned', label: t('groupPinned'), items: pinned });
@@ -120,6 +122,11 @@ export function Sidebar({
     for (const d of dateGroups(ungrouped, t)) out.push({ kind: 'list', key: 'd-' + d.label, label: d.label, items: d.items });
     return out;
   })();
+
+  const q = query.trim().toLowerCase();
+  const archivedConvs = conversations
+    .filter((c) => c.archived && (!q || c.title.toLowerCase().includes(q)))
+    .sort(byRecent);
 
   const cycleTheme = () => {
     const next = THEME_CYCLE[(THEME_CYCLE.indexOf(settings.theme) + 1) % THEME_CYCLE.length];
@@ -302,6 +309,14 @@ export function Sidebar({
             </button>
             <button
               onClick={() => {
+                controller.toggleArchive(c.id);
+                setMenuId(null);
+              }}
+            >
+              {c.archived ? t('unarchive') : t('archive')}
+            </button>
+            <button
+              onClick={() => {
                 controller.duplicateConversation(c.id);
                 setMenuId(null);
                 onCloseSettings();
@@ -444,6 +459,19 @@ export function Sidebar({
             </div>
           );
         })}
+
+        {archivedConvs.length > 0 && (
+          <div className="conv-group">
+            <div className="conv-group-head" onClick={() => setArchivedOpen((o) => !o)}>
+              <span className={`group-caret ${archivedOpen ? '' : 'collapsed'}`} aria-hidden>
+                ▾
+              </span>
+              <span className="group-name">🗄 {t('groupArchived')}</span>
+              <span className="group-count">{archivedConvs.length}</span>
+            </div>
+            {archivedOpen && archivedConvs.map(renderItem)}
+          </div>
+        )}
       </div>
 
       <div className="sidebar-footer">

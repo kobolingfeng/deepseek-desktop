@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { dialog, fs, notification, shell, win } from '../api';
+import { clipboard, dialog, fs, notification, shell, win } from '../api';
 import { fetchModels, streamChat } from './deepseek';
 import { newId } from './id';
 import { callMcpTool, connectMcp, findMcpServer, mcpToolSchemas, type McpServerState } from './mcp';
@@ -336,6 +336,28 @@ export function useChat() {
       persist();
       bumpNow();
     }
+  }
+
+  function toggleArchive(id: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (!conv) return;
+    conv.archived = !conv.archived;
+    if (conv.archived && activeId === id) {
+      // Leaving an archived chat: jump to the first non-archived one.
+      const next = convsRef.current.find((c) => !c.archived && c.id !== id);
+      setActiveId(next?.id ?? null);
+    }
+    persist();
+    bumpNow();
+  }
+
+  function copyWorkingDir() {
+    const d = settingsRef.current.workingDir;
+    if (d) clipboard.writeText(d).catch(() => {});
+  }
+  function openWorkingDir() {
+    const d = settingsRef.current.workingDir;
+    if (d) shell.open(d).catch(() => {});
   }
 
   function duplicateConversation(id: string) {
@@ -939,6 +961,9 @@ export function useChat() {
     deleteConversation,
     renameConversation,
     togglePin,
+    toggleArchive,
+    copyWorkingDir,
+    openWorkingDir,
     duplicateConversation,
     exportConversation,
     clearActive,
