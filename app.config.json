@@ -1,0 +1,28 @@
+{
+    "window": {
+        "title": "DeepSeek",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 480,
+        "center": true,
+        "frameless": true,
+        "rounded": true,
+        "saveWindowState": true,
+        "showWhenReady": true,
+        "backgroundColor": "#10121a",
+        "followSystemTheme": true,
+        "lightBackgroundColor": "#f5f6f8",
+        "darkBackgroundColor": "#10121a",
+        "singleInstance": true
+    },
+    "dev": {
+        "command": "npx vite",
+        "port": 5173,
+        "waitForPort": true
+    },
+    "build": {
+        "command": "npx vite build",
+        "outDir": "dist"
+    }
+}

@@ -1,0 +1,16 @@
+deps/
+dist/
+release/
+node_modules/
+native/build/
+native/_embedded.*
+native/app.res
+*.log
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.res
+.DS_Store
