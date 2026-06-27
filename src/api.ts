@@ -66,6 +66,8 @@ export const win = {
     setEffect:          (effect: 'none' | 'mica' | 'acrylic' | 'micaAlt') => invoke<boolean>('window.setEffect', { effect }),
     setOpacity:         (opacity: number) => invoke<boolean>('window.setOpacity', { opacity }),
     setProgress:        (value: number) => invoke<boolean>('window.setProgress', { value }),
+    /** Taskbar overlay badge: count>0 draws a number, 0 clears it. */
+    setBadge:           (count: number) => invoke<boolean>('window.setBadge', { count }),
     startDrag:          () => invoke<boolean>('window.startDrag'),
     startResize:        (edge: ResizeEdge) => invoke<boolean>('window.startResize', { edge }),
     getConfig:      () => invoke<unknown>('window.getConfig'),

@@ -545,6 +545,66 @@ static void ipc_emit(const std::string& ev, const json& data = {}) {
     g_view->PostWebMessageAsJson(U2W(m.dump()).c_str());
 }
 
+// Build a small taskbar overlay icon: a red circle with the count drawn on it.
+static HICON makeBadgeIcon(int count) {
+    const int sz = 32;
+    HDC dc = CreateCompatibleDC(nullptr);
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = sz;
+    bi.bmiHeader.biHeight = -sz; // top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP color = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HGDIOBJ oldbmp = SelectObject(dc, color);
+    if (bits) memset(bits, 0, (size_t)sz * sz * 4);
+
+    HBRUSH brush = CreateSolidBrush(RGB(0xE5, 0x48, 0x4D));
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(0xE5, 0x48, 0x4D));
+    HGDIOBJ ob = SelectObject(dc, brush);
+    HGDIOBJ op = SelectObject(dc, pen);
+    Ellipse(dc, 0, 0, sz, sz);
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(brush);
+    DeleteObject(pen);
+
+    std::wstring txt = count > 99 ? L"99+" : std::to_wstring(count);
+    HFONT font = CreateFontW(20, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+        0, 0, ANTIALIASED_QUALITY, 0, L"Segoe UI");
+    HGDIOBJ of = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    RECT rc{0, 0, sz, sz};
+    DrawTextW(dc, txt.c_str(), -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    SelectObject(dc, of);
+    DeleteObject(font);
+
+    GdiFlush();
+    if (bits) {
+        unsigned char* px = (unsigned char*)bits;
+        for (int i = 0; i < sz * sz; i++) {
+            unsigned char b = px[i * 4 + 0], g = px[i * 4 + 1], r = px[i * 4 + 2];
+            px[i * 4 + 3] = (b | g | r) ? 255 : 0; // opaque where drawn
+        }
+    }
+
+    SelectObject(dc, oldbmp);
+    DeleteDC(dc);
+
+    HBITMAP mask = CreateBitmap(sz, sz, 1, 1, nullptr);
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmColor = color;
+    ii.hbmMask = mask;
+    HICON icon = CreateIconIndirect(&ii);
+    DeleteObject(color);
+    DeleteObject(mask);
+    return icon;
+}
+
 static void ipc_dispatch(LPCWSTR raw) {
     try {
         auto req = json::parse(W2U(raw));
@@ -2277,6 +2337,23 @@ static void reg_extras() {
         } else {
             taskbar->SetProgressState(g_hwnd, TBPF_NORMAL);
             taskbar->SetProgressValue(g_hwnd, (ULONGLONG)(value * 1000), 1000);
+        }
+        return true;
+    });
+
+    // Taskbar overlay badge (count of unread completed tasks)
+    ipc_on("window.setBadge", [](const json& a) -> json {
+        int count = a.value("count", 0);
+        ComPtr<ITaskbarList3> taskbar;
+        if (FAILED(CoCreateInstance(CLSID_TaskbarList, nullptr, CLSCTX_ALL,
+            IID_PPV_ARGS(&taskbar)))) return false;
+        taskbar->HrInit();
+        if (count <= 0) {
+            taskbar->SetOverlayIcon(g_hwnd, nullptr, L"");
+        } else {
+            HICON icon = makeBadgeIcon(count);
+            taskbar->SetOverlayIcon(g_hwnd, icon, L"Unread tasks");
+            if (icon) DestroyIcon(icon);
         }
         return true;
     });

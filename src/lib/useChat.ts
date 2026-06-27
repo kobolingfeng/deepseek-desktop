@@ -209,6 +209,10 @@ export function useChat() {
   const stoppedRef = useRef(false);
   const focusedRef = useRef(true);
   const toolCancelRef = useRef<(() => void) | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
+  const runningIdsRef = useRef<Set<string>>(new Set()); // conversations currently generating
+  const unreadIdsRef = useRef<Set<string>>(new Set()); // finished while not active → unread
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
@@ -236,6 +240,12 @@ export function useChat() {
       cancelled = true;
     };
   }, [settings.apiKey, settings.baseUrl]);
+
+  // Reflect the unread-completed-task count on the taskbar icon (overlay badge).
+  const unreadCount = unreadIdsRef.current.size;
+  useEffect(() => {
+    win.setBadge(unreadCount).catch(() => {});
+  }, [unreadCount]);
 
   // Connect to MCP servers and load their tools whenever the list changes.
   const mcpKey = JSON.stringify(settings.mcpServers) + '|' + settings.workingDir;
@@ -294,6 +304,7 @@ export function useChat() {
   }
 
   function selectConversation(id: string) {
+    unreadIdsRef.current.delete(id); // opening a chat marks it read
     setActiveId(id);
   }
 
@@ -543,6 +554,8 @@ export function useChat() {
   async function runTurn(conv: Conversation) {
     setGenerating(true);
     stoppedRef.current = false;
+    runningIdsRef.current.add(conv.id);
+    bumpNow();
     const startedAt = Date.now();
     const cfg = settingsRef.current; // immutable snapshot for this turn
     const turnMcp = mcpRef.current; // MCP servers as of turn start
@@ -819,6 +832,9 @@ export function useChat() {
       persist();
     } finally {
       generatingRef.current = false;
+      runningIdsRef.current.delete(conv.id);
+      // Finished while the user is looking at another chat → mark it unread.
+      if (conv.id !== activeIdRef.current && !stoppedRef.current) unreadIdsRef.current.add(conv.id);
       setGenerating(false);
       cancelRef.current = null;
       approvalResolver.current = null;
@@ -861,6 +877,9 @@ export function useChat() {
     mcpStatus,
     groups,
     models,
+    runningIds: runningIdsRef.current,
+    unreadIds: unreadIdsRef.current,
+    unreadCount,
     // actions
     sendMessage,
     closeStatus,

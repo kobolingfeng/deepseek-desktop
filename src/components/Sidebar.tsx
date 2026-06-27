@@ -265,6 +265,11 @@ export function Sidebar({
           </svg>
         )}
         <span className="conv-title">{c.title}</span>
+        {controller.runningIds.has(c.id) ? (
+          <span className="conv-spin" title="Running…" aria-label="running" />
+        ) : controller.unreadIds.has(c.id) ? (
+          <span className="conv-dot" title="Done — unread" aria-label="unread" />
+        ) : null}
         <span className="conv-time">{convTime(c.updatedAt || c.createdAt, lang)}</span>
         <button
           className="conv-kebab"
