@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import type { Conversation, Group, ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
@@ -81,6 +81,8 @@ export function Sidebar({
   const [groupMenuId, setGroupMenuId] = useState<string | null>(null);
   const [groupRenameId, setGroupRenameId] = useState<string | null>(null);
   const [groupRenameText, setGroupRenameText] = useState('');
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropKey, setDropKey] = useState<string | null>(null);
   const userGroups = controller.groups;
 
   useEffect(() => {
@@ -95,7 +97,9 @@ export function Sidebar({
     return () => document.removeEventListener('mousedown', h);
   }, [menuId, groupMenuId]);
 
-  const sections = useMemo<Section[]>(() => {
+  // Computed every render (the controller re-renders in place via forceRender, so
+  // memoizing on the stable conversations array would go stale after in-place edits).
+  const sections: Section[] = (() => {
     const q = query.trim().toLowerCase();
     const filtered = q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
     const groupIds = new Set(userGroups.map((g) => g.id));
@@ -115,7 +119,7 @@ export function Sidebar({
     const ungrouped = rest.filter((c) => !c.groupId || !groupIds.has(c.groupId));
     for (const d of dateGroups(ungrouped, t)) out.push({ kind: 'list', key: 'd-' + d.label, label: d.label, items: d.items });
     return out;
-  }, [conversations, userGroups, query, t]);
+  })();
 
   const cycleTheme = () => {
     const next = THEME_CYCLE[(THEME_CYCLE.indexOf(settings.theme) + 1) % THEME_CYCLE.length];
@@ -217,7 +221,17 @@ export function Sidebar({
     return (
       <div
         key={c.id}
-        className={`conv-item ${c.id === activeId && !settingsOpen ? 'active' : ''} ${menuId === c.id ? 'menu-open' : ''}`}
+        className={`conv-item ${c.id === activeId && !settingsOpen ? 'active' : ''} ${menuId === c.id ? 'menu-open' : ''} ${dragId === c.id ? 'dragging' : ''}`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/conv', c.id);
+          e.dataTransfer.effectAllowed = 'move';
+          setDragId(c.id);
+        }}
+        onDragEnd={() => {
+          setDragId(null);
+          setDropKey(null);
+        }}
         onClick={() => {
           controller.selectConversation(c.id);
           onCloseSettings();
@@ -346,20 +360,41 @@ export function Sidebar({
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}
         {conversations.length > 0 && sections.length === 0 && <div className="conv-empty">{t('noMatches')}</div>}
-        {sections.map((s) =>
-          s.kind === 'list' ? (
-            <div key={s.key} className="conv-group">
+        {sections.map((s) => {
+          // group → move into it; date section → ungroup (null); pinned → not a target.
+          const target: string | null | undefined =
+            s.kind === 'group' ? s.group.id : s.key.startsWith('d-') ? null : undefined;
+          const droppable = target !== undefined && !!dragId;
+          const handlers = droppable
+            ? {
+                onDragOver: (e: React.DragEvent) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (dropKey !== s.key) setDropKey(s.key);
+                },
+                onDrop: (e: React.DragEvent) => {
+                  e.preventDefault();
+                  const id = e.dataTransfer.getData('text/conv') || dragId;
+                  setDropKey(null);
+                  setDragId(null);
+                  if (id) controller.moveToGroup(id, target as string | null);
+                },
+              }
+            : {};
+          const cls = `conv-group ${droppable && dropKey === s.key ? 'drop-target' : ''}`;
+          return s.kind === 'list' ? (
+            <div key={s.key} className={cls} {...handlers}>
               <div className="conv-section-label">{s.label}</div>
               {s.items.map(renderItem)}
             </div>
           ) : (
-            <div key={s.key} className="conv-group">
+            <div key={s.key} className={cls} {...handlers}>
               {renderGroupHeader(s.group, s.items.length)}
               {!s.group.collapsed && s.items.map(renderItem)}
               {!s.group.collapsed && s.items.length === 0 && <div className="conv-group-empty">{t('groupEmpty')}</div>}
             </div>
-          ),
-        )}
+          );
+        })}
       </div>
 
       <div className="sidebar-footer">
