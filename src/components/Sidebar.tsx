@@ -1,11 +1,34 @@
 import { useMemo, useState } from 'react';
-import { useI18n, type TFn } from '../lib/i18n';
+import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import type { Conversation, ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
 
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
 const THEME_ICON: Record<ThemePref, string> = { system: '🖥', light: '☀', dark: '🌙' };
 const DAY = 86400000;
+const MON_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function startOfDayTs(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Sidebar timestamp: today → clock, yesterday → label, older → date. */
+function convTime(ts: number, lang: Lang): string {
+  const today = startOfDayTs(Date.now());
+  const ds = startOfDayTs(ts);
+  const d = new Date(ts);
+  if (ds >= today) {
+    const h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2, '0');
+    if (lang === 'zh') return `${String(h).padStart(2, '0')}:${m}`;
+    const ap = h < 12 ? 'AM' : 'PM';
+    return `${h % 12 || 12}:${m} ${ap}`;
+  }
+  if (ds >= today - DAY) return lang === 'zh' ? '昨天' : 'Yesterday';
+  return lang === 'zh' ? `${d.getMonth() + 1}月${d.getDate()}日` : `${MON_EN[d.getMonth()]} ${d.getDate()}`;
+}
 
 function startOfDay(ts: number): number {
   const d = new Date(ts);
@@ -46,7 +69,7 @@ export function Sidebar({
   onCloseSettings: () => void;
   settingsOpen: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { conversations, activeId, settings } = controller;
   const [query, setQuery] = useState('');
 
@@ -71,7 +94,17 @@ export function Sidebar({
       }}
       title={c.title}
     >
+      <svg className="conv-ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+        <path
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinejoin="round"
+          d="M2.5 3.5h11v7h-6l-3 2.2v-2.2h-2z"
+        />
+      </svg>
       <span className="conv-title">{c.title}</span>
+      <span className="conv-time">{convTime(c.updatedAt || c.createdAt, lang)}</span>
       <button
         className="conv-del"
         title={t('delete')}

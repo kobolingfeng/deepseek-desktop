@@ -5,12 +5,21 @@ import rehypeHighlight from 'rehype-highlight';
 import { clipboard, shell } from '../api';
 import { useI18n } from '../lib/i18n';
 
+function extractText(node: ReactNode): string {
+  if (node == null || node === false) return '';
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (isValidElement(node)) return extractText((node.props as { children?: ReactNode }).children);
+  return '';
+}
+
 function CodeBlock({ children, ...props }: { children?: ReactNode }) {
   const { t } = useI18n();
   const ref = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
 
-  // Extract the language from the inner <code class="language-xxx">.
+  // Language label from the inner <code class="language-xxx">.
   let lang = '';
   const child = Children.toArray(children)[0];
   if (isValidElement(child)) {
@@ -19,13 +28,15 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
     if (m) lang = m[1];
   }
 
+  const raw = extractText(children).replace(/\n+$/, '');
+  const lineCount = raw ? raw.split('\n').length : 1;
+
   const copy = async () => {
-    const text = ref.current?.innerText ?? '';
     try {
-      await clipboard.writeText(text);
+      await clipboard.writeText(raw);
     } catch {
       try {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(raw);
       } catch {
         /* ignore */
       }
@@ -39,12 +50,19 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
       <div className="code-head">
         <span className="code-lang">{lang || 'code'}</span>
         <button className="code-copy" onClick={copy} title={t('copy')}>
-          {copied ? '✓ ' + t('copied') : t('copy')}
+          {copied ? '✓ ' + t('copied') : '⧉ ' + t('copy')}
         </button>
       </div>
-      <pre ref={ref} {...props}>
-        {children}
-      </pre>
+      <div className="code-body">
+        <div className="code-gutter" aria-hidden>
+          {Array.from({ length: lineCount }, (_, i) => (
+            <span key={i}>{i + 1}</span>
+          ))}
+        </div>
+        <pre ref={ref} {...props}>
+          {children}
+        </pre>
+      </div>
     </div>
   );
 }

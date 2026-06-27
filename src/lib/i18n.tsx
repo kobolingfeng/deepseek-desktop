@@ -33,6 +33,9 @@ const en: Dict = {
   composerPlaceholder: 'Message DeepSeek…',
   composerPlaceholderNoKey: 'Add your API key in Settings to start chatting…',
   composerHint: 'Enter to send · Shift+Enter for a new line',
+  disclaimer: 'DeepSeek can make mistakes. Consider checking important information.',
+  attachFile: 'Insert a file path',
+  insertCode: 'Insert a code block',
   send: 'Send',
   stop: 'Stop',
 
@@ -111,6 +114,9 @@ const zh: Dict = {
   composerPlaceholder: '给 DeepSeek 发消息…',
   composerPlaceholderNoKey: '先在设置里填入 API Key 才能开始对话…',
   composerHint: 'Enter 发送 · Shift+Enter 换行',
+  disclaimer: 'DeepSeek 可能会出错,请核查重要信息。',
+  attachFile: '插入文件路径',
+  insertCode: '插入代码块',
   send: '发送',
   stop: '停止',
 

@@ -12,7 +12,7 @@ export function ChatView({
   controller: ChatController;
   onOpenSettings: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { activeConversation, generating, pendingApproval, settings } = controller;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -35,6 +35,21 @@ export function ChatView({
   const visible = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
   const isEmpty = visible.length === 0;
   const suggestions = ['suggestion1', 'suggestion2', 'suggestion3', 'suggestion4'].map((k) => t(k));
+
+  const dayLabel = (() => {
+    if (!visible.length) return '';
+    const ts = visible[0].createdAt;
+    const d0 = new Date();
+    d0.setHours(0, 0, 0, 0);
+    const ds = new Date(ts);
+    ds.setHours(0, 0, 0, 0);
+    if (ds.getTime() >= d0.getTime()) return t('groupToday');
+    if (ds.getTime() >= d0.getTime() - 86400000) return t('groupYesterday');
+    const d = new Date(ts);
+    return lang === 'zh'
+      ? `${d.getMonth() + 1}月${d.getDate()}日`
+      : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  })();
   const approvalAction = pendingApproval ? t('tool_' + pendingApproval.toolCall.name) : '';
 
   return (
@@ -61,6 +76,11 @@ export function ChatView({
           </div>
         ) : (
           <div className="message-list">
+            {dayLabel && (
+              <div className="day-divider">
+                <span>{dayLabel}</span>
+              </div>
+            )}
             {visible.map((m) => (
               <Message key={m.id} message={m} toolResults={toolResults} />
             ))}

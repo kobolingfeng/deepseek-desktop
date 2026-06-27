@@ -3,8 +3,16 @@ import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { clipboard } from '../api';
-import { useI18n } from '../lib/i18n';
+import { useI18n, type Lang } from '../lib/i18n';
 import type { Message as Msg } from '../lib/types';
+
+function clockTime(ts: number, lang: Lang): string {
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  if (lang === 'zh') return `${String(h).padStart(2, '0')}:${m}`;
+  return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+}
 
 function MessageActions({ content, meta }: { content: string; meta?: string }) {
   const { t } = useI18n();
@@ -39,10 +47,15 @@ export function Message({
   message: Msg;
   toolResults: Map<string, Msg>;
 }) {
+  const { lang } = useI18n();
+
   if (message.role === 'user') {
     return (
       <div className="msg user">
-        <div className="bubble user-bubble">{message.content}</div>
+        <div className="user-col">
+          <div className="bubble user-bubble">{message.content}</div>
+          <div className="msg-time">{clockTime(message.createdAt, lang)}</div>
+        </div>
       </div>
     );
   }

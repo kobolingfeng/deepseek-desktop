@@ -232,11 +232,10 @@ textarea {
   color: var(--text-on-accent);
   font-weight: var(--fw-semibold);
   font-size: var(--text-base);
-  box-shadow: var(--shadow-sm);
   transition: filter var(--dur-1), transform var(--dur-1);
 }
 .new-chat:hover {
-  filter: brightness(1.07);
+  filter: brightness(1.06);
 }
 .new-chat:active {
   transform: translateY(1px);
@@ -291,12 +290,19 @@ textarea {
 }
 
 .conv-section-label {
-  font-size: var(--text-xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
   color: var(--text-tertiary);
   padding: var(--space-3) var(--space-2) var(--space-1);
+}
+.conv-ico {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.conv-item.active .conv-ico {
+  color: var(--accent);
+  opacity: 1;
 }
 .conv-list {
   flex: 1;
@@ -338,20 +344,30 @@ textarea {
   text-overflow: ellipsis;
   font-size: var(--text-base);
 }
+.conv-time {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.conv-item:hover .conv-time {
+  display: none;
+}
 .conv-del {
-  opacity: 0;
+  display: none;
+  margin-left: auto;
   color: var(--text-tertiary);
   font-size: 11px;
   width: 22px;
   height: 22px;
   border-radius: var(--radius-xs);
-  display: grid;
   place-items: center;
   flex-shrink: 0;
-  transition: opacity var(--dur-1), color var(--dur-1), background var(--dur-1);
+  transition: color var(--dur-1), background var(--dur-1);
 }
 .conv-item:hover .conv-del {
-  opacity: 1;
+  display: grid;
 }
 .conv-del:hover {
   color: var(--danger);
@@ -495,9 +511,15 @@ textarea {
 .msg.user {
   justify-content: flex-end;
 }
+.user-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  max-width: 78%;
+}
 .user-bubble {
   background: var(--user-bubble-bg);
-  max-width: 78%;
   padding: 11px 16px;
   border-radius: var(--radius-lg);
   border-bottom-right-radius: var(--radius-xs);
@@ -505,16 +527,36 @@ textarea {
   word-break: break-word;
   line-height: var(--leading-snug);
 }
+.msg-time {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  padding: 0 2px;
+}
+.day-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+  margin-bottom: var(--space-1);
+}
+.day-divider::before,
+.day-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
 .avatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 17px;
   margin-top: 1px;
 }
 .assistant-body {
@@ -793,12 +835,12 @@ textarea {
 }
 .composer-box {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: var(--space-2);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  padding: 8px 8px 8px 18px;
+  border-radius: var(--radius-2xl);
+  padding: 14px 16px 10px;
   box-shadow: var(--shadow-sm);
   transition: border-color var(--dur-2), box-shadow var(--dur-2);
 }
@@ -807,7 +849,7 @@ textarea {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .composer textarea {
-  flex: 1;
+  width: 100%;
   resize: none;
   border: none;
   outline: none;
@@ -815,19 +857,49 @@ textarea {
   color: var(--text-primary);
   font-size: var(--text-md);
   line-height: 1.5;
-  max-height: 220px;
-  padding: 7px 0;
+  max-height: 200px;
+  padding: 2px 0;
 }
 .composer textarea::placeholder {
   color: var(--text-tertiary);
 }
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.composer-tools {
+  display: flex;
+  gap: 2px;
+}
+.composer-tool {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  transition: color var(--dur-1), background var(--dur-1);
+}
+.composer-tool.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: var(--fw-semibold);
+}
+.composer-tool:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.composer-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .send-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   background: var(--accent);
   color: var(--text-on-accent);
-  font-size: 18px;
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1178,7 +1250,29 @@ textarea {
   color: var(--text-tertiary);
   letter-spacing: 0.3px;
 }
+.code-body {
+  display: flex;
+  align-items: stretch;
+}
+.code-gutter {
+  flex-shrink: 0;
+  padding: 14px 0;
+  text-align: right;
+  user-select: none;
+  color: var(--text-tertiary);
+  opacity: 0.4;
+  font-family: var(--font-mono);
+  font-size: 12.8px;
+  line-height: 1.6;
+  border-right: 1px solid var(--border-subtle);
+}
+.code-gutter span {
+  display: block;
+  padding: 0 12px 0 16px;
+}
 .code-block pre {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   padding: 14px 16px;
   background: transparent;
@@ -1215,32 +1309,32 @@ textarea {
 }
 .hljs-keyword,
 .hljs-selector-tag,
-.hljs-built_in,
-.hljs-name,
+.hljs-literal,
+.hljs-section,
 .hljs-tag {
-  color: #ff7b9c;
+  color: #7aa2f7;
 }
 .hljs-string,
-.hljs-title,
-.hljs-section,
 .hljs-attribute,
-.hljs-literal,
+.hljs-addition,
 .hljs-template-tag,
-.hljs-template-variable,
-.hljs-type,
-.hljs-addition {
+.hljs-template-variable {
   color: #9ece6a;
+}
+.hljs-title,
+.hljs-name,
+.hljs-title.function_,
+.hljs-function .hljs-title,
+.hljs-built_in,
+.hljs-type {
+  color: #e5c07b;
 }
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet,
 .hljs-meta,
 .hljs-link {
-  color: #ff9e64;
-}
-.hljs-title.function_,
-.hljs-function .hljs-title {
-  color: #7aa2f7;
+  color: #e0a06a;
 }
 .hljs-attr,
 .hljs-variable,
