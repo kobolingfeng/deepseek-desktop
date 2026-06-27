@@ -2,10 +2,41 @@ import { useReducer, useRef, useState } from 'react';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
-import { describeTool, executeTool, TOOL_SCHEMAS, toolPerm } from './tools';
+import { describeTool, executeTool, isKnownTool, TOOL_SCHEMAS, toolPerm } from './tools';
 import type { Conversation, Message, ModelId, Settings, ToolCall } from './types';
 
 const MAX_TOOL_ITERS = 12;
+// Codex-style context compaction: when a conversation grows past this many
+// characters, summarize the older messages and keep only the recent ones.
+const COMPACT_CHAR_THRESHOLD = 90000;
+const KEEP_RECENT_MSGS = 6;
+const COMPACT_PROMPT =
+  "Summarize the conversation so far into a concise but complete brief that preserves the user's goals, key facts, decisions, file paths, important code, and any open tasks, so the assistant can continue seamlessly. Write in the same language as the conversation. Output only the summary.";
+
+function totalChars(messages: Message[], systemPrompt: string): number {
+  let n = systemPrompt.length;
+  for (const m of messages) {
+    n += (m.content?.length || 0) + (m.reasoning?.length || 0);
+    if (m.toolCalls) n += JSON.stringify(m.toolCalls).length;
+  }
+  return n;
+}
+
+function renderTranscript(messages: Message[]): string {
+  return messages
+    .map((m) => {
+      if (m.role === 'user') return 'User: ' + m.content;
+      if (m.role === 'assistant') {
+        if (m.content) return 'Assistant: ' + m.content;
+        if (m.toolCalls?.length) return 'Assistant called tools: ' + m.toolCalls.map((t) => t.name).join(', ');
+        return '';
+      }
+      if (m.role === 'tool') return `Tool(${m.toolName}): ` + (m.content || '').slice(0, 1200);
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n\n');
+}
 
 function makeConversation(model: ModelId): Conversation {
   const now = Date.now();
@@ -114,6 +145,51 @@ export function useChat() {
     if (approvalResolver.current) resolveApproval(false);
   }
 
+  // Summarize older messages when the conversation gets long, to stay within
+  // the model's context window (codex/Claude-Code-style auto-compaction).
+  async function maybeCompact(conv: Conversation, cfg: Settings) {
+    const msgs = conv.messages;
+    if (msgs.length <= KEEP_RECENT_MSGS + 2) return;
+    if (totalChars(msgs, cfg.systemPrompt) < COMPACT_CHAR_THRESHOLD) return;
+
+    let splitAt = msgs.length - KEEP_RECENT_MSGS;
+    // Don't let the recent slice start with orphan tool results.
+    while (splitAt < msgs.length && msgs[splitAt].role === 'tool') splitAt++;
+    const older = msgs.slice(0, splitAt);
+    const recent = msgs.slice(splitAt);
+    if (older.length < 3) return;
+
+    const { promise } = streamChat(
+      {
+        messages: [
+          { id: newId('c'), role: 'user', content: COMPACT_PROMPT + '\n\n---\n' + renderTranscript(older), createdAt: Date.now() },
+        ],
+        model: 'deepseek-chat',
+        settings: cfg,
+      },
+      {},
+    );
+    let summary = '';
+    try {
+      summary = (await promise).content;
+    } catch {
+      return; // compaction failed — keep the full history rather than lose it
+    }
+    if (!summary.trim()) return;
+
+    const label = cfg.language === 'zh' ? '（以下为早前对话的摘要）\n' : '(Summary of the earlier conversation)\n';
+    const summaryMsg: Message = {
+      id: newId('s'),
+      role: 'user',
+      content: label + summary.trim(),
+      compacted: true,
+      createdAt: Date.now(),
+    };
+    conv.messages = [summaryMsg, ...recent];
+    bumpNow();
+    persist();
+  }
+
   async function runTurn(conv: Conversation) {
     setGenerating(true);
     stoppedRef.current = false;
@@ -122,6 +198,8 @@ export function useChat() {
     let hitToolLimit = false;
 
     try {
+      await maybeCompact(conv, cfg);
+
       for (let iter = 0; iter < MAX_TOOL_ITERS; iter++) {
         if (stoppedRef.current) break;
 
@@ -181,30 +259,49 @@ export function useChat() {
         bumpNow();
         persist();
 
-        if (result.cancelled || stoppedRef.current) break;
-        if (!asst.toolCalls || result.finishReason !== 'tool_calls') break;
+        // Cancelled/stopped before executing tools: drop unexecuted tool calls so
+        // we never persist assistant tool_calls without matching tool results
+        // (which would make the next API request invalid).
+        if (result.cancelled || stoppedRef.current) {
+          asst.toolCalls = undefined;
+          bumpNow();
+          persist();
+          break;
+        }
+        if (!asst.toolCalls || result.finishReason !== 'tool_calls') {
+          if (asst.toolCalls) {
+            asst.toolCalls = undefined; // stray tool calls without a tool_calls finish — discard
+            bumpNow();
+            persist();
+          }
+          break;
+        }
 
-        // Execute each requested tool, gating dangerous ones behind approval.
+        // Execute each requested tool, gating by permission.
         for (const tc of asst.toolCalls) {
           if (stoppedRef.current) break;
-          const perm = toolPerm(tc.name, settingsRef.current);
-          let approved = true;
-          if (perm === 'ask') approved = await requestApproval(tc);
-
           let out = '';
           let isErr = false;
-          if (perm === 'off') {
-            out = 'This tool is disabled by the user.';
-            isErr = true;
-          } else if (!approved) {
-            out = 'User denied this action.';
+          if (!isKnownTool(tc.name)) {
+            out = `Unknown tool: ${tc.name}`;
             isErr = true;
           } else {
-            try {
-              out = await executeTool(tc, settingsRef.current);
-            } catch (e: any) {
-              out = 'Error: ' + (e?.message || String(e));
+            const perm = toolPerm(tc.name, settingsRef.current);
+            let approved = true;
+            if (perm === 'ask') approved = await requestApproval(tc);
+            if (perm === 'off') {
+              out = 'This tool is disabled by the user.';
               isErr = true;
+            } else if (!approved) {
+              out = 'User denied this action.';
+              isErr = true;
+            } else {
+              try {
+                out = await executeTool(tc, settingsRef.current);
+              } catch (e: any) {
+                out = 'Error: ' + (e?.message || String(e));
+                isErr = true;
+              }
             }
           }
           conv.messages.push({
@@ -219,6 +316,25 @@ export function useChat() {
           bumpNow();
           persist();
         }
+
+        // Backfill results for any tool call left unhandled (e.g. Stop mid-loop)
+        // so assistant tool_calls always have matching tool results.
+        for (const tc of asst.toolCalls) {
+          if (!conv.messages.some((mm) => mm.role === 'tool' && mm.toolCallId === tc.id)) {
+            conv.messages.push({
+              id: newId('t'),
+              role: 'tool',
+              toolCallId: tc.id,
+              toolName: tc.name,
+              content: 'Cancelled.',
+              isError: true,
+              createdAt: Date.now(),
+            });
+          }
+        }
+        bumpNow();
+        persist();
+
         if (stoppedRef.current) break;
         if (iter === MAX_TOOL_ITERS - 1) hitToolLimit = true;
       }

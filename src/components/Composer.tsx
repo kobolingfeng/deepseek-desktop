@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { dialog } from '../api';
+import { dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
 
 const SpeechRec: any =
@@ -32,6 +32,15 @@ export function Composer({
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 200) + 'px';
   }, [text]);
+
+  // Drag files from the OS onto the window → insert their paths into the input.
+  useEffect(() => {
+    return win.onFileDrop(({ files }) => {
+      if (!files || !files.length || disabled) return;
+      setText((prev) => (prev && !/\s$/.test(prev) ? prev + ' ' : prev) + files.join(' '));
+      ref.current?.focus();
+    });
+  }, [disabled]);
 
   const submit = () => {
     const tx = text.trim();

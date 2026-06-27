@@ -52,7 +52,11 @@ const en: Dict = {
 
   tool_read_file: 'Read file',
   tool_list_dir: 'List directory',
+  tool_find_files: 'Find files',
+  tool_search_files: 'Search in files',
   tool_web_search: 'Web search',
+  tool_read_url: 'Read web page',
+  tool_edit_file: 'Edit file',
   tool_write_file: 'Write file',
   tool_run_command: 'Run command',
   statusRunning: 'running',
@@ -100,6 +104,7 @@ const en: Dict = {
 
   copy: 'Copy',
   copied: 'Copied',
+  compacted: 'Earlier messages compacted to save context',
 };
 
 const zh: Dict = {
@@ -145,7 +150,11 @@ const zh: Dict = {
 
   tool_read_file: '读取文件',
   tool_list_dir: '列出目录',
+  tool_find_files: '查找文件',
+  tool_search_files: '搜索文件内容',
   tool_web_search: '联网搜索',
+  tool_read_url: '读取网页',
+  tool_edit_file: '修改文件',
   tool_write_file: '写入文件',
   tool_run_command: '执行命令',
   statusRunning: '执行中',
@@ -193,6 +202,7 @@ const zh: Dict = {
 
   copy: '复制',
   copied: '已复制',
+  compacted: '已压缩较早的消息以节省上下文',
 };
 
 const DICTS: Record<Lang, Dict> = { en, zh };

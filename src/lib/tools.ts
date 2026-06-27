@@ -8,7 +8,11 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_file', defaultPerm: 'allow' },
   { name: 'list_dir', defaultPerm: 'allow' },
+  { name: 'find_files', defaultPerm: 'allow' },
+  { name: 'search_files', defaultPerm: 'allow' },
   { name: 'web_search', defaultPerm: 'allow' },
+  { name: 'read_url', defaultPerm: 'allow' },
+  { name: 'edit_file', defaultPerm: 'ask' },
   { name: 'write_file', defaultPerm: 'ask' },
   { name: 'run_command', defaultPerm: 'ask' },
 ];
@@ -21,6 +25,10 @@ export function defaultToolPermissions(): Record<string, ToolPerm> {
 
 export function toolPerm(name: string, settings: Settings): ToolPerm {
   return settings.toolPermissions?.[name] ?? TOOL_LIST.find((t) => t.name === name)?.defaultPerm ?? 'ask';
+}
+
+export function isKnownTool(name: string): boolean {
+  return TOOL_LIST.some((t) => t.name === name);
 }
 
 export const TOOL_SCHEMAS = [
@@ -55,6 +63,39 @@ export const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'find_files',
+      description:
+        'Find files by name/glob pattern under the working directory (like glob). Use to locate files. Skips node_modules/.git/dist.',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: 'Glob, e.g. "**/*.ts", "src/*.tsx", "*.json".' },
+          path: { type: 'string', description: 'Root to search; defaults to the working directory.' },
+        },
+        required: ['pattern'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_files',
+      description:
+        'Search file contents for a regular expression under the working directory (like grep). Returns matching file:line lines. Skips node_modules/.git/dist and binary files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Regular expression to search for.' },
+          glob: { type: 'string', description: 'Optional file glob to limit the search, e.g. "**/*.ts".' },
+          path: { type: 'string', description: 'Root to search; defaults to the working directory.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'web_search',
       description:
         'Search the web for up-to-date information. Call this on your own whenever the question may depend on current events, recent data, prices, releases, news, library/API docs, or anything that could have changed after your training or that you are unsure about. Returns the top results with titles, URLs and snippets.',
@@ -64,6 +105,39 @@ export const TOOL_SCHEMAS = [
           query: { type: 'string', description: 'The search query.' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_url',
+      description:
+        'Open a web page and return its main text content. Use this after web_search to actually read a promising result, or whenever the user gives a URL. Returns readable text with markup stripped.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The full http(s) URL to open.' },
+        },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description:
+        'Make a precise in-place edit by replacing an exact substring. Prefer this over write_file when changing part of an existing file. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File to edit.' },
+          old_string: { type: 'string', description: 'Exact text to replace (include enough context to be unique).' },
+          new_string: { type: 'string', description: 'Replacement text.' },
+          replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match.' },
+        },
+        required: ['path', 'old_string', 'new_string'],
       },
     },
   },
@@ -122,18 +196,107 @@ function safeParse(argsJson: string): any {
   }
 }
 
+const IGNORE_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', '.next', '.cache', 'deps', 'target', 'out', '.svn', 'release', '.idea', '.vscode',
+]);
+const BINARY_EXT =
+  /\.(png|jpe?g|gif|webp|ico|bmp|pdf|zip|gz|tar|rar|7z|exe|dll|so|dylib|bin|obj|pdb|lib|exp|woff2?|ttf|otf|eot|mp3|mp4|mov|avi|webm|wasm|class|jar|node|lock)$/i;
+
+/** Breadth-first file walk under root, skipping heavy/vendored dirs. */
+async function walkFiles(root: string, max = 4000): Promise<string[]> {
+  const out: string[] = [];
+  const queue: string[] = [root];
+  while (queue.length && out.length < max) {
+    const dir = queue.shift() as string;
+    let entries;
+    try {
+      entries = await fs.readDir(dir);
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const full = dir.replace(/[\\/]+$/, '') + '\\' + e.name;
+      if (e.isDir) {
+        if (!IGNORE_DIRS.has(e.name)) queue.push(full);
+      } else {
+        out.push(full);
+        if (out.length >= max) break;
+      }
+    }
+  }
+  return out;
+}
+
+function globToRegExp(glob: string): RegExp {
+  const g = glob.replace(/\\/g, '/').trim();
+  let re = '';
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i];
+    if (c === '*') {
+      if (g[i + 1] === '*') {
+        re += '.*';
+        i++;
+        if (g[i + 1] === '/') i++;
+      } else re += '[^/]*';
+    } else if (c === '?') re += '[^/]';
+    else if ('.+^${}()|[]\\'.includes(c)) re += '\\' + c;
+    else re += c;
+  }
+  return new RegExp('(^|/)' + re + '$', 'i');
+}
+
+function toRel(full: string, rootNorm: string): string {
+  const f = full.replace(/\\/g, '/');
+  return f.startsWith(rootNorm + '/') ? f.slice(rootNorm.length + 1) : f;
+}
+
+let _entityDecoder: HTMLTextAreaElement | null = null;
+
+// Decode HTML entities. In the renderer we use a <textarea> (handles every named
+// + numeric entity); inputs are always tag-stripped first so there is no markup
+// to parse. Falls back to a regex map when no DOM is available.
 function decodeEntities(s: string): string {
+  if (!s.includes('&')) return s;
+  if (typeof document !== 'undefined') {
+    if (!_entityDecoder) _entityDecoder = document.createElement('textarea');
+    _entityDecoder.innerHTML = s;
+    return _entityDecoder.value;
+  }
   return s
-    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#x27;|&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
+    .replace(/&amp;/g, '&');
 }
 
 function cleanText(s: string): string {
   return decodeEntities(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+}
+
+/** Strip a web page down to readable main text (Readability-lite). */
+function htmlToText(html: string): string {
+  let s = html;
+  s = s
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '');
+  // Preserve some structure as newlines.
+  s = s.replace(/<\/(p|div|section|article|h[1-6]|li|tr|blockquote)>/gi, '\n').replace(/<br\s*\/?>(?=)/gi, '\n');
+  s = decodeEntities(s.replace(/<[^>]+>/g, ' '));
+  return s
+    .replace(/[ \t\f\v]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 interface SearchHit {
@@ -155,9 +318,19 @@ function formatResults(query: string, hits: SearchHit[]): string {
 // Prefer the WebView2 renderer's own fetch (real Chromium fingerprint, and with
 // web-security disabled it can read cross-origin) so search engines don't serve
 // the bot-challenge they give raw WinHttp. Fall back to native WinHttp.
+async function timedFetch(url: string, init: RequestInit, ms = 20000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function browserGet(url: string): Promise<{ status: number; body: string }> {
   try {
-    const r = await fetch(url, { headers: { Accept: 'application/json, text/html' } });
+    const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } });
     return { status: r.status, body: await r.text() };
   } catch {
     const r = await http.get(url, { 'User-Agent': UA });
@@ -167,7 +340,7 @@ async function browserGet(url: string): Promise<{ status: number; body: string }
 
 async function browserPostForm(url: string, body: string): Promise<{ status: number; body: string }> {
   try {
-    const r = await fetch(url, {
+    const r = await timedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
@@ -184,14 +357,33 @@ async function browserPostForm(url: string, body: string): Promise<{ status: num
   }
 }
 
+function normalizeDdgUrl(href: string): string {
+  let u = href.trim();
+  const mm = u.match(/[?&]uddg=([^&]+)/);
+  if (mm) {
+    try {
+      return decodeURIComponent(mm[1]);
+    } catch {
+      /* fall through */
+    }
+  }
+  if (u.startsWith('//')) u = 'https:' + u;
+  return u;
+}
+
 function parseDdgLite(body: string): SearchHit[] {
   const snippets = [...body.matchAll(/result-snippet[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cleanText(m[1]));
-  const linkRe = /<a\s+rel="nofollow"[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
   const hits: SearchHit[] = [];
+  const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let m: RegExpExecArray | null;
   let i = 0;
-  while ((m = linkRe.exec(body)) && hits.length < 6) {
-    hits.push({ url: decodeEntities(m[1]), title: cleanText(m[2]), snippet: snippets[i] || '' });
+  while ((m = anchorRe.exec(body)) && hits.length < 6) {
+    if (!/result-link/.test(m[1])) continue; // only DDG result anchors
+    const hrefM = m[1].match(/href="([^"]+)"/);
+    if (!hrefM) continue;
+    const url = normalizeDdgUrl(decodeEntities(hrefM[1]));
+    if (!/^https?:\/\//i.test(url)) continue;
+    hits.push({ url, title: cleanText(m[2]), snippet: snippets[i] || '' });
     i++;
   }
   return hits;
@@ -241,8 +433,16 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Read file', detail: a.path || '' };
     case 'list_dir':
       return { title: 'List directory', detail: a.path || '.' };
+    case 'find_files':
+      return { title: 'Find files', detail: a.pattern || '' };
+    case 'search_files':
+      return { title: 'Search files', detail: a.query || '' };
+    case 'edit_file':
+      return { title: 'Edit file', detail: a.path || '' };
     case 'web_search':
       return { title: 'Web search', detail: a.query || '' };
+    case 'read_url':
+      return { title: 'Read page', detail: a.url || '' };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':
@@ -274,6 +474,85 @@ export async function executeTool(tc: ToolCall, settings: Settings): Promise<str
       const q = String(args.query || '').trim();
       if (!q) throw new Error('query is required');
       return truncate(await webSearch(q, settings), 8000);
+    }
+    case 'read_url': {
+      const url = String(args.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) throw new Error('a full http(s) url is required');
+      const r = await browserGet(url);
+      if (r.status >= 400) throw new Error(`Failed to open page (HTTP ${r.status})`);
+      const raw = r.body.length > 2_000_000 ? r.body.slice(0, 2_000_000) : r.body;
+      if (raw.slice(0, 4000).indexOf(String.fromCharCode(0)) >= 0) return '(the URL did not return readable text)';
+      const text = htmlToText(raw);
+      return text ? truncate(text, 12000) : '(no readable text found on the page)';
+    }
+    case 'find_files': {
+      const pattern = String(args.pattern || '').trim();
+      if (!pattern) throw new Error('pattern is required');
+      const root = resolvePath(args.path || '.', settings.workingDir) || settings.workingDir;
+      if (!root) throw new Error('no working directory set; set one in Settings or pass an absolute path');
+      const re = globToRegExp(pattern);
+      const rootNorm = root.replace(/\\/g, '/').replace(/\/+$/, '');
+      const matches = (await walkFiles(root))
+        .map((f) => f.replace(/\\/g, '/'))
+        .filter((f) => re.test(f))
+        .map((f) => toRel(f, rootNorm));
+      if (!matches.length) return `No files matching "${pattern}" under ${root}`;
+      return (
+        `Found ${matches.length} file(s):\n` +
+        matches.slice(0, 200).join('\n') +
+        (matches.length > 200 ? `\n… and ${matches.length - 200} more` : '')
+      );
+    }
+    case 'search_files': {
+      const q = String(args.query || '');
+      if (!q) throw new Error('query is required');
+      let re: RegExp;
+      try {
+        re = new RegExp(q, 'i');
+      } catch {
+        throw new Error('invalid regular expression');
+      }
+      const root = resolvePath(args.path || '.', settings.workingDir) || settings.workingDir;
+      if (!root) throw new Error('no working directory set; set one in Settings or pass an absolute path');
+      const rootNorm = root.replace(/\\/g, '/').replace(/\/+$/, '');
+      const globRe = args.glob ? globToRegExp(String(args.glob)) : null;
+      const files = (await walkFiles(root)).filter(
+        (f) => !BINARY_EXT.test(f) && (!globRe || globRe.test(f.replace(/\\/g, '/'))),
+      );
+      const lines: string[] = [];
+      let scanned = 0;
+      for (const f of files) {
+        if (lines.length >= 100 || scanned >= 800) break;
+        let content: string;
+        try {
+          content = await fs.readTextFile(f);
+        } catch {
+          continue;
+        }
+        scanned++;
+        if (content.length > 1_000_000) continue;
+        const fl = content.split('\n');
+        for (let i = 0; i < fl.length && lines.length < 100; i++) {
+          if (re.test(fl[i])) lines.push(`${toRel(f.replace(/\\/g, '/'), rootNorm)}:${i + 1}: ${fl[i].trim().slice(0, 200)}`);
+        }
+      }
+      if (!lines.length) return `No matches for /${q}/ under ${root}`;
+      return `${lines.length} match(es) (scanned ${scanned} files):\n` + lines.join('\n');
+    }
+    case 'edit_file': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      const oldStr = String(args.old_string ?? '');
+      const newStr = String(args.new_string ?? '');
+      if (!oldStr) throw new Error('old_string is required');
+      const content = await fs.readTextFile(p);
+      const count = content.split(oldStr).length - 1;
+      if (count === 0) throw new Error('old_string was not found in the file');
+      if (count > 1 && !args.replace_all)
+        throw new Error(`old_string appears ${count} times; pass replace_all:true or add more surrounding context`);
+      const updated = args.replace_all ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr);
+      await fs.writeTextFile(p, updated);
+      return `Edited ${p} (${count === 1 ? '1 replacement' : count + ' replacements'})`;
     }
     case 'write_file': {
       const p = resolvePath(args.path, settings.workingDir);

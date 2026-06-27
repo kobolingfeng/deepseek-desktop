@@ -14,6 +14,20 @@ function clockTime(ts: number, lang: Lang): string {
   return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+function CompactedNote({ text }: { text: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="compacted">
+      <button className="compacted-head" onClick={() => setOpen((o) => !o)}>
+        <span>🗜 {t('compacted')}</span>
+        <span className="compacted-chevron">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && <div className="compacted-body">{text}</div>}
+    </div>
+  );
+}
+
 function MessageActions({ content, meta }: { content: string; meta?: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -48,6 +62,10 @@ export function Message({
   toolResults: Map<string, Msg>;
 }) {
   const { lang } = useI18n();
+
+  if (message.compacted) {
+    return <CompactedNote text={message.content} />;
+  }
 
   if (message.role === 'user') {
     return (

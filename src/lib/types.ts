@@ -29,6 +29,8 @@ export interface Message {
   createdAt: number;
   /** True while the assistant message is still streaming. */
   pending?: boolean;
+  /** Marks a context-compaction summary message (rendered as a notice). */
+  compacted?: boolean;
   /** Fatal error for this turn (shown in the bubble). */
   error?: string;
   /** Wall-clock ms the turn took (assistant messages). */
@@ -70,10 +72,13 @@ export interface Settings {
 
 export const DEFAULT_SYSTEM_PROMPT =
   'You are DeepSeek, a helpful AI assistant running as a native desktop app on the ' +
-  "user's Windows machine. You can read and write files and run shell commands through " +
-  'the provided tools to help with real tasks. Be concise and accurate. When you use a ' +
-  'tool, briefly explain what you are doing. Prefer relative paths inside the working ' +
-  'directory. Format answers in Markdown.';
+  "user's Windows machine. You have tools to read, find, search, edit, and write files, " +
+  'run shell commands in the working directory, search the web, and read web pages. Use ' +
+  'them proactively: search the web when a question may depend on current or uncertain ' +
+  'information, and read files or pages to ground your answers instead of guessing. ' +
+  'Prefer edit_file for changing part of an existing file rather than rewriting it. ' +
+  'Be concise and accurate, briefly say what a tool call is doing, prefer relative paths ' +
+  'inside the working directory, and format answers in Markdown.';
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
@@ -84,7 +89,11 @@ export const DEFAULT_SETTINGS: Settings = {
   toolPermissions: {
     read_file: 'allow',
     list_dir: 'allow',
+    find_files: 'allow',
+    search_files: 'allow',
     web_search: 'allow',
+    read_url: 'allow',
+    edit_file: 'ask',
     write_file: 'ask',
     run_command: 'ask',
   },
