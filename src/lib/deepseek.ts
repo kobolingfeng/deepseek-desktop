@@ -17,7 +17,13 @@ export function toApiMessages(messages: Message[], systemPrompt: string): ApiMes
   if (systemPrompt.trim()) out.push({ role: 'system', content: systemPrompt });
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content });
+      let content = m.content;
+      if (m.attachments && m.attachments.length) {
+        content += m.attachments
+          .map((a) => `\n\n<file path="${a.path}">\n${a.content}\n</file>`)
+          .join('');
+      }
+      out.push({ role: 'user', content });
     } else if (m.role === 'assistant') {
       // Skip empty placeholder assistant turns (no text and no tool calls).
       if (!m.content && !(m.toolCalls && m.toolCalls.length)) continue;

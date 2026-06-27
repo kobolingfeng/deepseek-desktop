@@ -31,6 +31,11 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
   const setPerm = (tool: string, perm: ToolPerm) =>
     updateSettings({ toolPermissions: { ...(settings.toolPermissions || {}), [tool]: perm } });
 
+  const cmds = settings.customCommands || [];
+  const setCmds = (next: typeof cmds) => updateSettings({ customCommands: next });
+  const mcps = settings.mcpServers || [];
+  const setMcps = (next: typeof mcps) => updateSettings({ mcpServers: next });
+
   return (
     <div className="settings">
       <div className="settings-head">
@@ -176,6 +181,80 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
                 {t('resetDefault')}
               </button>
             </div>
+          </div>
+        </div>
+
+        {/* Custom commands */}
+        <div className="settings-section">
+          <div className="section-title">{t('secCommands')}</div>
+          <div className="section-card">
+            <p className="hint">{t('secCommandsDesc')}</p>
+            {cmds.map((c, i) => (
+              <div className="list-row" key={i}>
+                <span className="list-prefix">/</span>
+                <input
+                  className="list-name"
+                  value={c.name}
+                  placeholder={t('cmdNamePh')}
+                  spellCheck={false}
+                  onChange={(e) =>
+                    setCmds(cmds.map((x, j) => (j === i ? { ...x, name: e.target.value.replace(/[^a-zA-Z0-9-]/g, '') } : x)))
+                  }
+                />
+                <input
+                  className="list-val"
+                  value={c.prompt}
+                  placeholder={t('cmdPromptPh')}
+                  onChange={(e) => setCmds(cmds.map((x, j) => (j === i ? { ...x, prompt: e.target.value } : x)))}
+                />
+                <button className="ghost list-del" onClick={() => setCmds(cmds.filter((_, j) => j !== i))}>
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button className="ghost" onClick={() => setCmds([...cmds, { name: '', prompt: '' }])}>
+              + {t('addCommand')}
+            </button>
+          </div>
+        </div>
+
+        {/* MCP servers */}
+        <div className="settings-section">
+          <div className="section-title">{t('secMcp')}</div>
+          <div className="section-card">
+            <p className="hint">{t('secMcpDesc')}</p>
+            {mcps.map((m, i) => {
+              const st = controller.mcpStatus.find((s) => s.name === m.name.trim());
+              return (
+                <div className="list-row" key={i}>
+                  <input
+                    className="list-name"
+                    value={m.name}
+                    placeholder={t('mcpNamePh')}
+                    spellCheck={false}
+                    onChange={(e) =>
+                      setMcps(mcps.map((x, j) => (j === i ? { ...x, name: e.target.value.replace(/[^a-zA-Z0-9-]/g, '') } : x)))
+                    }
+                  />
+                  <input
+                    className="list-val"
+                    value={m.url}
+                    placeholder={t('mcpUrlPh')}
+                    spellCheck={false}
+                    onChange={(e) => setMcps(mcps.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+                  />
+                  <span className="mcp-state" title={st?.error || ''}>
+                    {st ? st.ok ? `🟢 ${st.tools.length}` : '🔴' : ''}
+                  </span>
+                  <button className="ghost list-del" onClick={() => setMcps(mcps.filter((_, j) => j !== i))}>
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+            <button className="ghost" onClick={() => setMcps([...mcps, { name: '', url: '' }])}>
+              + {t('addServer')}
+            </button>
           </div>
         </div>
 

@@ -2,7 +2,15 @@ import { useEffect, useReducer, useRef, useState } from 'react';
 import { dialog, fs, notification, shell, win } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
-import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
+import { callMcpTool, connectMcp, findMcpServer, mcpToolSchemas, type McpServerState } from './mcp';
+import {
+  loadConversations,
+  loadProfiles,
+  loadSettings,
+  saveConversations,
+  saveProfiles,
+  saveSettings,
+} from './storage';
 import {
   DANGEROUS_TOOLS,
   deriveApprovalMode,
@@ -12,7 +20,35 @@ import {
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
-import type { Conversation, Message, ModelId, Settings, ToolCall } from './types';
+import type { Conversation, Message, ModelId, Profile, Settings, ToolCall } from './types';
+
+function pickProfile(s: Settings): Profile {
+  return {
+    model: s.model,
+    systemPrompt: s.systemPrompt,
+    agentMode: s.agentMode,
+    toolPermissions: s.toolPermissions,
+  };
+}
+
+/** Read files referenced as @path in a message, relative to the working dir. */
+async function expandMentions(text: string, dir: string): Promise<{ path: string; content: string }[]> {
+  const tokens = new Set<string>();
+  for (const m of text.matchAll(/(?:^|\s)@([^\s@]+)/g)) tokens.add(m[1].replace(/[.,;:)]+$/, ''));
+  const out: { path: string; content: string }[] = [];
+  for (const rel of tokens) {
+    const full = /^[a-zA-Z]:[\\/]/.test(rel) || rel.startsWith('\\') ? rel : (dir ? dir.replace(/[\\/]+$/, '') + '\\' + rel : rel);
+    try {
+      if (await fs.exists(full)) {
+        const c = await fs.readTextFile(full);
+        out.push({ path: rel, content: c.slice(0, 30000) });
+      }
+    } catch {
+      /* skip unreadable mentions */
+    }
+  }
+  return out;
+}
 
 const MAX_TOOL_ITERS = 12;
 const LOOP_MAX_ITERS = 25;
@@ -105,6 +141,9 @@ export function useChat() {
   const [settings, setSettings] = useState<Settings>(loadSettings());
   const [generating, setGenerating] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [mcpStatus, setMcpStatus] = useState<McpServerState[]>([]);
+  const mcpRef = useRef<McpServerState[]>([]);
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);
@@ -124,6 +163,26 @@ export function useChat() {
       offB();
     };
   }, []);
+
+  // Connect to MCP servers and load their tools whenever the list changes.
+  const mcpKey = JSON.stringify(settings.mcpServers);
+  useEffect(() => {
+    let cancelled = false;
+    const servers = settingsRef.current.mcpServers.filter((s) => s.name.trim() && s.url.trim());
+    if (!servers.length) {
+      mcpRef.current = [];
+      setMcpStatus([]);
+      return;
+    }
+    Promise.all(servers.map((s) => connectMcp(s.name.trim(), s.url.trim()))).then((states) => {
+      if (cancelled) return;
+      mcpRef.current = states;
+      setMcpStatus(states);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mcpKey]);
 
   const bumpNow = () => forceRender();
   const bumpSoon = () => {
@@ -219,25 +278,10 @@ export function useChat() {
   }
 
   function showStatus() {
-    const conv = getActive() ?? newConversation();
-    const s = settingsRef.current;
-    const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.inputTokens);
-    const ctx = last?.inputTokens ? Math.round(last.inputTokens / 1000) + 'k' : '—';
-    const count = conv.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.auto).length;
-    const lines = [
-      '**Status**',
-      '',
-      `- Model: \`${conv.model}\``,
-      `- Working dir: \`${s.workingDir || '(not set)'}\``,
-      `- Mode: \`${s.agentMode}\``,
-      `- Approval: \`${deriveApprovalMode(s.toolPermissions)}\``,
-      `- Context: \`${ctx} / 64k\``,
-      `- Messages: \`${count}\``,
-    ];
-    conv.messages.push({ id: newId('a'), role: 'assistant', content: lines.join('\n'), createdAt: Date.now() });
-    conv.updatedAt = Date.now();
-    bumpNow();
-    persist();
+    setStatusOpen(true);
+  }
+  function closeStatus() {
+    setStatusOpen(false);
   }
 
   async function runGitDiff() {
@@ -275,7 +319,25 @@ export function useChat() {
   }
 
   function updateSettings(patch: Partial<Settings>) {
-    const next = { ...settingsRef.current, ...patch };
+    const prev = settingsRef.current;
+    let next = { ...prev, ...patch };
+
+    if (patch.workingDir !== undefined && patch.workingDir !== prev.workingDir) {
+      // Switching project: stash the old dir's profile, restore the new one.
+      const profiles = loadProfiles();
+      if (prev.workingDir) profiles[prev.workingDir] = pickProfile(prev);
+      const np = patch.workingDir ? profiles[patch.workingDir] : undefined;
+      if (np) {
+        next = { ...next, model: np.model, systemPrompt: np.systemPrompt, agentMode: np.agentMode, toolPermissions: np.toolPermissions };
+      }
+      saveProfiles(profiles);
+    } else if (next.workingDir) {
+      // Remember profile-relevant changes for the current project.
+      const profiles = loadProfiles();
+      profiles[next.workingDir] = pickProfile(next);
+      saveProfiles(profiles);
+    }
+
     settingsRef.current = next;
     setSettings(next);
     saveSettings(next);
@@ -400,6 +462,8 @@ export function useChat() {
         );
         if (mode === 'plan') {
           activeTools = activeTools.filter((s) => !DANGEROUS_TOOLS.includes((s.function as { name: string }).name));
+        } else if (mcpRef.current.length) {
+          activeTools = [...activeTools, ...mcpToolSchemas(mcpRef.current)];
         }
         const handle = streamChat(
           {
@@ -500,6 +564,32 @@ export function useChat() {
               out = 'Invalid plan payload.';
               isErr = true;
             }
+          } else if (tc.name.startsWith('mcp__')) {
+            const { server, tool } = findMcpServer(mcpRef.current, tc.name);
+            if (!server || !server.ok) {
+              out = `MCP server not connected for ${tc.name}.`;
+              isErr = true;
+            } else {
+              const full = deriveApprovalMode(settingsRef.current.toolPermissions) === 'full';
+              const approved = full ? true : await requestApproval(tc);
+              if (!approved) {
+                out = 'User denied this action.';
+                isErr = true;
+              } else {
+                let a: any = {};
+                try {
+                  a = JSON.parse(tc.arguments || '{}');
+                } catch {
+                  /* ignore */
+                }
+                try {
+                  out = await callMcpTool(server, tool, a);
+                } catch (e: any) {
+                  out = 'Error: ' + (e?.message || String(e));
+                  isErr = true;
+                }
+              }
+            }
           } else if (!isKnownTool(tc.name)) {
             out = `Unknown tool: ${tc.name}`;
             isErr = true;
@@ -599,14 +689,17 @@ export function useChat() {
     }
   }
 
-  function sendMessage(text: string) {
+  async function sendMessage(text: string) {
     const trimmed = text.trim();
     if (generatingRef.current || !trimmed) return;
     generatingRef.current = true;
     let conv = getActive();
     if (!conv) conv = newConversation();
 
-    conv.messages.push({ id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() });
+    const attachments = await expandMentions(trimmed, settingsRef.current.workingDir);
+    const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
+    if (attachments.length) userMsg.attachments = attachments;
+    conv.messages.push(userMsg);
     if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(trimmed);
     conv.updatedAt = Date.now();
     persist();
@@ -622,8 +715,11 @@ export function useChat() {
     settings,
     generating,
     pendingApproval,
+    statusOpen,
+    mcpStatus,
     // actions
     sendMessage,
+    closeStatus,
     stop,
     newConversation,
     selectConversation,

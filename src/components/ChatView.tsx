@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { Composer } from './Composer';
 import { Message } from './Message';
+import { StatusCard } from './StatusCard';
 import { TodoPanel } from './TodoPanel';
 import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
@@ -146,6 +147,8 @@ export function ChatView({
         onStop={controller.stop}
         placeholder={settings.apiKey ? t('composerPlaceholder') : t('composerPlaceholderNoKey')}
       />
+
+      {controller.statusOpen && <StatusCard controller={controller} />}
     </div>
   );
 }

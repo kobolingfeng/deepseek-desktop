@@ -41,6 +41,8 @@ export interface Message {
   tokens?: number;
   /** Input (prompt) tokens for this turn — reflects current context size. */
   inputTokens?: number;
+  /** Files referenced via @mention; their contents are sent to the model. */
+  attachments?: { path: string; content: string }[];
 }
 
 export type TodoStatus = 'pending' | 'doing' | 'done';
@@ -88,6 +90,18 @@ export interface Settings {
   agentMode: AgentMode;
   /** Show a desktop notification when a reply finishes and the window is unfocused. */
   notifyOnDone: boolean;
+  /** User-defined slash commands (name → prompt text). */
+  customCommands: { name: string; prompt: string }[];
+  /** MCP servers (HTTP transport) to load tools from. */
+  mcpServers: { name: string; url: string }[];
+}
+
+/** Per-working-directory profile: settings remembered per project. */
+export interface Profile {
+  model: ModelId;
+  systemPrompt: string;
+  agentMode: AgentMode;
+  toolPermissions: Record<string, ToolPerm>;
 }
 
 // Empty by default — no system prompt is sent unless the user sets one.
@@ -117,6 +131,8 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   agentMode: 'chat',
   notifyOnDone: true,
+  customCommands: [],
+  mcpServers: [],
 };
 
 export const MODELS: { id: ModelId; label: string; blurbKey: string; tools: boolean }[] = [

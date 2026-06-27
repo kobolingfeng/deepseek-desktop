@@ -156,6 +156,13 @@ export function Composer({
         }
       },
     },
+    ...(controller.settings.customCommands || [])
+      .filter((c) => c.name.trim() && c.prompt.trim())
+      .map((c) => ({
+        cmd: c.name.trim(),
+        label: c.prompt.replace(/\s+/g, ' ').slice(0, 48),
+        run: () => controller.sendMessage(c.prompt),
+      })),
   ];
 
   const selectFile = (f: string) => {

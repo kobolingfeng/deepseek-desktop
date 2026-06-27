@@ -1,9 +1,27 @@
 // Persistence via WebView2's localStorage (survives in the app's user data dir).
-import type { Conversation, Settings } from './types';
+import type { Conversation, Profile, Settings } from './types';
 import { DEFAULT_SETTINGS } from './types';
 
 const CONV_KEY = 'deepseek.conversations';
 const SETTINGS_KEY = 'deepseek.settings';
+const PROFILES_KEY = 'deepseek.profiles';
+
+export function loadProfiles(): Record<string, Profile> {
+  try {
+    const raw = localStorage.getItem(PROFILES_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, Profile>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveProfiles(p: Record<string, Profile>): void {
+  try {
+    localStorage.setItem(PROFILES_KEY, JSON.stringify(p));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function loadSettings(): Settings {
   try {

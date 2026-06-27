@@ -1833,3 +1833,98 @@ textarea {
 [data-theme="light"] .hljs-variable {
   color: #0550ae;
 }
+
+/* ============ Status card (modal) ============ */
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fade var(--dur-1) var(--ease-out);
+}
+.status-card {
+  width: min(420px, 92vw);
+  background: var(--bg-elevated, var(--bg-app));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg, 0 20px 60px rgba(0, 0, 0, 0.4));
+  padding: var(--space-4);
+  animation: rise var(--dur-2) var(--ease-out);
+}
+.status-card-head {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  margin-bottom: var(--space-3);
+}
+.status-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle, var(--border-default));
+  font-size: var(--text-base);
+}
+.status-row:last-child {
+  border-bottom: none;
+}
+.status-k {
+  color: var(--text-tertiary);
+}
+.status-v {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+.status-close {
+  width: 100%;
+}
+
+/* ============ Settings list editors (commands / MCP) ============ */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.list-prefix {
+  color: var(--text-tertiary);
+  font-weight: var(--fw-semibold);
+}
+.list-name {
+  flex: 0 0 110px;
+  min-width: 0;
+}
+.list-val {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.list-del {
+  flex-shrink: 0;
+  padding: 6px 10px;
+}
+.mcp-state {
+  flex-shrink: 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+  text-align: center;
+}
