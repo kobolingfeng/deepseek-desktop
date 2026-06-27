@@ -93,6 +93,7 @@ export function loadSettings(): Settings {
     if (typeof s.model !== 'string' || !s.model) s.model = DEFAULT_SETTINGS.model;
     if (typeof s.globalMemory !== 'string') s.globalMemory = '';
     if (typeof s.workingDir !== 'string') s.workingDir = '';
+    if ((s.agentMode as string) === 'loop') s.agentMode = 'goal'; // renamed: loop → goal
     return s;
   } catch {
     return { ...DEFAULT_SETTINGS };

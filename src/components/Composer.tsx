@@ -1,16 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { dialog, isNativeRuntime, win } from '../api';
+import { dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
 import { CONTEXT_LABEL } from '../lib/deepseek';
 import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, deriveApprovalMode, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
-import { nativeListen } from '../lib/voice';
 import type { ChatController } from '../lib/useChat';
-
-const SpeechRec: any =
-  typeof window !== 'undefined'
-    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    : undefined;
 
 function BarMenu({
   chip,
@@ -95,13 +89,11 @@ export function Composer({
   const { t } = useI18n();
   const lang = controller.settings.language;
   const [text, setText] = useState('');
-  const [listening, setListening] = useState(false);
   const [sugIdx, setSugIdx] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [files, setFiles] = useState<string[]>([]);
   const filesLoaded = useRef(false);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const recRef = useRef<any>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -149,7 +141,7 @@ export function Composer({
   const curMode = controller.settings.agentMode || 'chat';
   const SLASH: { cmd: string; label: string; run: () => void }[] = [
     { cmd: 'plan', label: t('cmdPlan'), run: () => controller.updateSettings({ agentMode: curMode === 'plan' ? 'chat' : 'plan' }) },
-    { cmd: 'loop', label: t('cmdLoop'), run: () => controller.updateSettings({ agentMode: curMode === 'loop' ? 'chat' : 'loop' }) },
+    { cmd: 'goal', label: t('cmdGoal'), run: () => controller.updateSettings({ agentMode: curMode === 'goal' ? 'chat' : 'goal' }) },
     { cmd: 'clear', label: t('cmdClear'), run: () => controller.clearActive() },
     { cmd: 'compact', label: t('cmdCompact'), run: () => controller.compactActive() },
     { cmd: 'diff', label: t('cmdDiff'), run: () => controller.runGitDiff() },
@@ -278,54 +270,6 @@ export function Composer({
     }
   };
 
-  const toggleVoice = async () => {
-    // Native app: use Windows System.Speech (works offline in WebView2).
-    if (isNativeRuntime) {
-      if (listening) return;
-      setListening(true);
-      try {
-        const txt = await nativeListen(lang === 'zh' ? 'zh' : 'en');
-        if (txt) setText((prev) => (prev ? prev.replace(/\s*$/, ' ') : '') + txt);
-      } catch {
-        /* ignore */
-      }
-      setListening(false);
-      ref.current?.focus();
-      return;
-    }
-    // Browser (dev preview): Web Speech API.
-    if (!SpeechRec) return;
-    if (listening) {
-      recRef.current?.stop();
-      return;
-    }
-    try {
-      const rec = new SpeechRec();
-      rec.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
-      rec.interimResults = true;
-      rec.continuous = false;
-      const base = text;
-      rec.onresult = (e: any) => {
-        let s = '';
-        for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript;
-        setText((base ? base.replace(/\s*$/, ' ') : '') + s);
-      };
-      rec.onend = () => {
-        setListening(false);
-        recRef.current = null;
-      };
-      rec.onerror = () => {
-        setListening(false);
-        recRef.current = null;
-      };
-      recRef.current = rec;
-      setListening(true);
-      rec.start();
-    } catch {
-      setListening(false);
-    }
-  };
-
   const modelBlurb = (id: string) =>
     /flash/i.test(id)
       ? t('modelBlurbFast')
@@ -359,12 +303,12 @@ export function Composer({
   }
 
   const agentMode = controller.settings.agentMode || 'chat';
-  const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), loop: t('modeLoop') };
-  const MODE_ICON: Record<string, string> = { chat: '💬', plan: '📋', loop: '🔁' };
+  const MODE_LABEL: Record<string, string> = { chat: t('modeChat'), plan: t('modePlan'), goal: t('modeGoal') };
+  const MODE_ICON: Record<string, string> = { chat: '💬', plan: '📋', goal: '🎯' };
   const modeOptions = [
     { id: 'chat', label: t('modeChat'), desc: t('modeChatDesc') },
     { id: 'plan', label: t('modePlan'), desc: t('modePlanDesc') },
-    { id: 'loop', label: t('modeLoop'), desc: t('modeLoopDesc') },
+    { id: 'goal', label: t('modeGoal'), desc: t('modeGoalDesc') },
   ];
 
   return (
@@ -427,7 +371,7 @@ export function Composer({
               {agentMode !== 'chat' && (
                 <BarMenu
                   heading={t('modeHeading')}
-                  danger={agentMode === 'loop'}
+                  danger={agentMode === 'goal'}
                   chip={
                     <>
                       <span className="bar-chip-ico">{MODE_ICON[agentMode]}</span>
@@ -449,23 +393,6 @@ export function Composer({
                 onSelect={(id) => controller.setModel(id as ModelId)}
                 disabled={disabled}
               />
-              <button
-                className={`composer-tool ${listening ? 'listening' : ''}`}
-                onClick={toggleVoice}
-                title={isNativeRuntime || SpeechRec ? t('voiceInput') : t('voiceUnsupported')}
-                disabled={disabled || !(isNativeRuntime || SpeechRec)}
-              >
-                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <rect x="6" y="2" width="4" height="7" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
-                  <path
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinecap="round"
-                    d="M4 7.6a4 4 0 0 0 8 0M8 11.6V14M6 14h4"
-                  />
-                </svg>
-              </button>
               {generating ? (
                 <button className="send-btn stop" onClick={onStop} title={t('stop')}>
                   <span className="stop-square" />

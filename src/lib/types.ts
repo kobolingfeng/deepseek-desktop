@@ -32,7 +32,7 @@ export interface Message {
   pending?: boolean;
   /** Marks a context-compaction summary message (rendered as a notice). */
   compacted?: boolean;
-  /** Auto-generated continuation prompt (loop mode) — hidden from the chat UI. */
+  /** Auto-generated continuation prompt (goal mode) — hidden from the chat UI. */
   auto?: boolean;
   /** Fatal error for this turn (shown in the bubble). */
   error?: string;
@@ -88,8 +88,8 @@ export type ThemePref = 'system' | 'light' | 'dark';
 export type Lang = 'en' | 'zh';
 /** Per-tool permission: run freely / ask each time / disabled. */
 export type ToolPerm = 'allow' | 'ask' | 'off';
-/** Agent operating mode: normal chat / plan-only / autonomous loop. */
-export type AgentMode = 'chat' | 'plan' | 'loop';
+/** Agent operating mode: normal chat / plan-only / autonomous goal. */
+export type AgentMode = 'chat' | 'plan' | 'goal';
 
 export interface Settings {
   apiKey: string;
