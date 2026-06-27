@@ -2359,8 +2359,22 @@ static void reg_extras() {
     });
 
     // ---- cancellable shell.run process registry ----
+    struct ProcEntry { DWORD pid = 0; std::atomic<bool> cancel{false}; };
     static std::mutex g_procMutex;
-    static std::unordered_map<int, DWORD> g_procPids; // cancelId -> root process id
+    static std::unordered_map<int, std::shared_ptr<ProcEntry>> g_procs; // cancelId -> entry
+
+    static auto killTree = [](DWORD pid) {
+        std::wstring kill = L"taskkill /T /F /PID " + std::to_wstring(pid);
+        STARTUPINFOW si{sizeof(si)};
+        PROCESS_INFORMATION pi{};
+        std::vector<wchar_t> c(kill.begin(), kill.end());
+        c.push_back(0);
+        if (CreateProcessW(nullptr, c.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+            WaitForSingleObject(pi.hProcess, 5000);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+        }
+    };
 
     // Shell.run with stdout/stderr capture. Runs on a worker thread (so it never
     // blocks the UI/dispatch thread) and returns its result via the shell.runResult
@@ -2379,10 +2393,23 @@ static void reg_extras() {
             }
         }
 
-        std::thread([cmdLine, cancelId, runId]() {
+        // Register BEFORE spawning so a cancel arriving during the spawn isn't lost.
+        std::shared_ptr<ProcEntry> entry;
+        if (cancelId >= 0) {
+            entry = std::make_shared<ProcEntry>();
+            std::lock_guard<std::mutex> lk(g_procMutex);
+            g_procs[cancelId] = entry;
+        }
+
+        std::thread([cmdLine, cancelId, runId, entry]() {
             auto post = [&](int exitCode, const std::string& out, const std::string& err) {
                 auto* p = new json{{"runId", runId}, {"exitCode", exitCode}, {"stdout", out}, {"stderr", err}};
                 if (!PostMessageW(g_hwnd, WM_SHELL_DONE, 0, (LPARAM)p)) delete p;
+            };
+            auto unregister = [&]() {
+                if (cancelId < 0) return;
+                std::lock_guard<std::mutex> lk(g_procMutex);
+                g_procs.erase(cancelId);
             };
 
             SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -2404,15 +2431,16 @@ static void reg_extras() {
                 CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
                 CloseHandle(hOutR); CloseHandle(hOutW);
                 CloseHandle(hErrR); CloseHandle(hErrW);
+                unregister();
                 post(-1, "", "Failed to start process");
                 return;
             }
             CloseHandle(hOutW);
             CloseHandle(hErrW);
 
-            if (cancelId >= 0) {
-                std::lock_guard<std::mutex> lk(g_procMutex);
-                g_procPids[cancelId] = pi.dwProcessId;
+            if (entry) {
+                entry->pid = pi.dwProcessId;
+                if (entry->cancel.load()) killTree(pi.dwProcessId); // cancel arrived during the spawn race
             }
 
             auto readPipe = [](HANDLE h) -> std::string {
@@ -2436,20 +2464,21 @@ static void reg_extras() {
                 return 0;
             }, errCtx, 0, nullptr);
             auto stdout_ = readPipe(hOutR);
-            WaitForSingleObject(hErrThread, INFINITE);
-            CloseHandle(hErrThread);
-            auto stderr_ = std::move(errCtx->data);
+            std::string stderr_;
+            if (hErrThread) {
+                WaitForSingleObject(hErrThread, INFINITE);
+                CloseHandle(hErrThread);
+                stderr_ = std::move(errCtx->data);
+            } else {
+                CloseHandle(hErrR); // thread creation failed (rare): discard stderr, avoid deadlock
+            }
             delete errCtx;
             WaitForSingleObject(pi.hProcess, INFINITE);
             DWORD exitCode = 0;
             GetExitCodeProcess(pi.hProcess, &exitCode);
+            unregister(); // remove before closing the handle so a stale cancel can't hit a reused PID
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
-
-            if (cancelId >= 0) {
-                std::lock_guard<std::mutex> lk(g_procMutex);
-                g_procPids.erase(cancelId);
-            }
 
             post((int)exitCode, stdout_, stderr_);
         }).detach();
@@ -2460,24 +2489,16 @@ static void reg_extras() {
     // Cancel an in-flight shell.run by killing its process tree (taskkill /T).
     ipc_on("shell.runCancel", [](const json& a) -> json {
         int id = a.value("id", -1);
-        DWORD pid = 0;
+        std::shared_ptr<ProcEntry> e;
         {
             std::lock_guard<std::mutex> lk(g_procMutex);
-            auto it = g_procPids.find(id);
-            if (it != g_procPids.end()) pid = it->second;
+            auto it = g_procs.find(id);
+            if (it != g_procs.end()) e = it->second;
         }
-        if (pid) {
-            std::wstring kill = L"taskkill /T /F /PID " + std::to_wstring(pid);
-            STARTUPINFOW si{sizeof(si)};
-            PROCESS_INFORMATION pi{};
-            std::vector<wchar_t> c(kill.begin(), kill.end());
-            c.push_back(0);
-            if (CreateProcessW(nullptr, c.data(), nullptr, nullptr, FALSE,
-                CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-                WaitForSingleObject(pi.hProcess, 5000);
-                CloseHandle(pi.hProcess);
-                CloseHandle(pi.hThread);
-            }
+        if (e) {
+            e->cancel = true;          // if the process isn't spawned yet, the worker kills it post-spawn
+            DWORD pid = e->pid;
+            if (pid) killTree(pid);
         }
         return json{{"ok", true}};
     });
