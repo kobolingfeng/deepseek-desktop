@@ -3,7 +3,7 @@ import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { clipboard } from '../api';
-import { extractChanges } from '../lib/diff';
+import { extractChanges, type FileChange } from '../lib/diff';
 import { useI18n, type Lang } from '../lib/i18n';
 import type { Message as Msg } from '../lib/types';
 
@@ -11,7 +11,9 @@ import type { Message as Msg } from '../lib/types';
 // sent to the model — they're just not shown. Flip SHOW_REASONING / edit the set
 // to bring rows back.
 const SHOW_REASONING = false;
-const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir', 'web_search']);
+// edit_file/write_file are folded into the single "Edited <file>" row below, so
+// their standalone tool rows are hidden.
+const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir', 'web_search', 'edit_file', 'write_file']);
 
 function clockTime(ts: number, lang: Lang): string {
   const d = new Date(ts);
@@ -111,14 +113,43 @@ function MessageActions({ content, meta }: { content: string; meta?: string }) {
   );
 }
 
+// One "Edited <file> +A -D" row that expands the inline diff on click
+// (replaces the separate ✎ write/edit tool row).
+function EditedFileRow({ change }: { change: FileChange }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const name = change.path.split(/[\\/]/).pop();
+  const hasDiff = change.diff.length > 0;
+  return (
+    <div className={`edited-file-row ${change.ok ? '' : 'error'}`}>
+      <button className="edited-file" onClick={() => hasDiff && setOpen((o) => !o)} title={change.path}>
+        <span className="edited-file-verb">{t('editedVerb')}</span>
+        <span className="edited-file-name">{name}</span>
+        <span className="edited-file-stat">
+          <span className="diff-add">+{change.additions}</span> <span className="diff-del">-{change.deletions}</span>
+        </span>
+        {hasDiff && <span className="edited-file-chev">{open ? '▾' : '›'}</span>}
+      </button>
+      {open && hasDiff && (
+        <div className="diff">
+          {change.diff.map((r, i) => (
+            <div key={i} className={`diff-line ${r.t}`}>
+              <span className="diff-sign">{r.t === 'del' ? '-' : r.t === 'add' ? '+' : ' '}</span>
+              {r.s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Message({
   message,
   toolResults,
-  onReview,
 }: {
   message: Msg;
   toolResults: Map<string, Msg>;
-  onReview?: () => void;
 }) {
   const { t, lang } = useI18n();
 
@@ -180,14 +211,7 @@ export function Message({
         {changes.length > 0 && (
           <div className="edited-files">
             {changes.map((c, i) => (
-              <button key={i} className="edited-file" onClick={onReview} title={c.path}>
-                <span className="edited-file-verb">{t('editedVerb')}</span>
-                <span className="edited-file-name">{c.path.split(/[\\/]/).pop()}</span>
-                <span className="edited-file-stat">
-                  <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
-                </span>
-                <span className="edited-file-chev">›</span>
-              </button>
+              <EditedFileRow key={i} change={c} />
             ))}
           </div>
         )}

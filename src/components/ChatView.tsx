@@ -120,7 +120,7 @@ export function ChatView({
               </div>
             )}
             {visible.map((m) => (
-              <Message key={m.id} message={m} toolResults={toolResults} onReview={() => controller.openPanel('changes')} />
+              <Message key={m.id} message={m} toolResults={toolResults} />
             ))}
           </div>
         )}
