@@ -3,7 +3,15 @@ import { dialog, fs, notification, shell, win } from '../api';
 import { streamChat } from './deepseek';
 import { newId } from './id';
 import { loadConversations, loadSettings, saveConversations, saveSettings } from './storage';
-import { DANGEROUS_TOOLS, describeTool, executeTool, isKnownTool, TOOL_SCHEMAS, toolPerm } from './tools';
+import {
+  DANGEROUS_TOOLS,
+  deriveApprovalMode,
+  describeTool,
+  executeTool,
+  isKnownTool,
+  TOOL_SCHEMAS,
+  toolPerm,
+} from './tools';
 import type { Conversation, Message, ModelId, Settings, ToolCall } from './types';
 
 const MAX_TOOL_ITERS = 12;
@@ -208,6 +216,28 @@ export function useChat() {
       persist();
       bumpNow();
     }
+  }
+
+  function showStatus() {
+    const conv = getActive() ?? newConversation();
+    const s = settingsRef.current;
+    const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.inputTokens);
+    const ctx = last?.inputTokens ? Math.round(last.inputTokens / 1000) + 'k' : '—';
+    const count = conv.messages.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.auto).length;
+    const lines = [
+      '**Status**',
+      '',
+      `- Model: \`${conv.model}\``,
+      `- Working dir: \`${s.workingDir || '(not set)'}\``,
+      `- Mode: \`${s.agentMode}\``,
+      `- Approval: \`${deriveApprovalMode(s.toolPermissions)}\``,
+      `- Context: \`${ctx} / 64k\``,
+      `- Messages: \`${count}\``,
+    ];
+    conv.messages.push({ id: newId('a'), role: 'assistant', content: lines.join('\n'), createdAt: Date.now() });
+    conv.updatedAt = Date.now();
+    bumpNow();
+    persist();
   }
 
   async function runGitDiff() {
@@ -605,6 +635,7 @@ export function useChat() {
     clearActive,
     compactActive,
     runGitDiff,
+    showStatus,
     setModel,
     updateSettings,
     approve: () => resolveApproval(true),

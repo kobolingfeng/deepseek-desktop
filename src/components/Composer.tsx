@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { dialog, win } from '../api';
+import { dialog, isNativeRuntime, win } from '../api';
 import { useI18n } from '../lib/i18n';
 import { MODELS, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, deriveApprovalMode, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
+import { nativeListen } from '../lib/voice';
 import type { ChatController } from '../lib/useChat';
 
 const SpeechRec: any =
@@ -136,6 +137,7 @@ export function Composer({
     { cmd: 'clear', label: t('cmdClear'), run: () => controller.clearActive() },
     { cmd: 'compact', label: t('cmdCompact'), run: () => controller.compactActive() },
     { cmd: 'diff', label: t('cmdDiff'), run: () => controller.runGitDiff() },
+    { cmd: 'status', label: t('cmdStatus'), run: () => controller.showStatus() },
     { cmd: 'init', label: t('cmdInit'), run: () => controller.sendMessage(t('initPrompt')) },
     {
       cmd: 'model',
@@ -247,7 +249,22 @@ export function Composer({
     }
   };
 
-  const toggleVoice = () => {
+  const toggleVoice = async () => {
+    // Native app: use Windows System.Speech (works offline in WebView2).
+    if (isNativeRuntime) {
+      if (listening) return;
+      setListening(true);
+      try {
+        const txt = await nativeListen(lang === 'zh' ? 'zh' : 'en');
+        if (txt) setText((prev) => (prev ? prev.replace(/\s*$/, ' ') : '') + txt);
+      } catch {
+        /* ignore */
+      }
+      setListening(false);
+      ref.current?.focus();
+      return;
+    }
+    // Browser (dev preview): Web Speech API.
     if (!SpeechRec) return;
     if (listening) {
       recRef.current?.stop();
@@ -400,8 +417,8 @@ export function Composer({
               <button
                 className={`composer-tool ${listening ? 'listening' : ''}`}
                 onClick={toggleVoice}
-                title={SpeechRec ? t('voiceInput') : t('voiceUnsupported')}
-                disabled={disabled || !SpeechRec}
+                title={isNativeRuntime || SpeechRec ? t('voiceInput') : t('voiceUnsupported')}
+                disabled={disabled || !(isNativeRuntime || SpeechRec)}
               >
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
                   <rect x="6" y="2" width="4" height="7" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />

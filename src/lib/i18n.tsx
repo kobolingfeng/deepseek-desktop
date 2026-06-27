@@ -43,6 +43,8 @@ const en: Dict = {
   cmdLoopDesc: 'Work autonomously until done',
   cmdDiff: 'Show git diff',
   cmdDiffDesc: 'Show uncommitted changes in the working dir',
+  cmdStatus: 'Status',
+  cmdStatusDesc: 'Model, working dir, mode, context usage',
   executeIn: 'Execute',
   planTitle: 'Plan',
   initPrompt:
@@ -189,6 +191,8 @@ const zh: Dict = {
   cmdLoopDesc: '自主执行直到完成',
   cmdDiff: '查看 git diff',
   cmdDiffDesc: '显示工作目录未提交的改动',
+  cmdStatus: '状态',
+  cmdStatusDesc: '模型、工作目录、模式、上下文用量',
   executeIn: '执行',
   planTitle: '计划',
   initPrompt:
