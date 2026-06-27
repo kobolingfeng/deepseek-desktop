@@ -184,6 +184,19 @@ async function browserPostForm(url: string, body: string): Promise<{ status: num
   }
 }
 
+function parseDdgLite(body: string): SearchHit[] {
+  const snippets = [...body.matchAll(/result-snippet[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cleanText(m[1]));
+  const linkRe = /<a\s+rel="nofollow"[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const hits: SearchHit[] = [];
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = linkRe.exec(body)) && hits.length < 6) {
+    hits.push({ url: decodeEntities(m[1]), title: cleanText(m[2]), snippet: snippets[i] || '' });
+    i++;
+  }
+  return hits;
+}
+
 async function webSearch(query: string, settings: Settings): Promise<string> {
   const endpoint = (settings.searchEndpoint || '').trim();
 
@@ -204,20 +217,20 @@ async function webSearch(query: string, settings: Settings): Promise<string> {
     return formatResults(query, hits);
   }
 
-  // Keyless default: DuckDuckGo lite.
-  const r = await browserPostForm('https://lite.duckduckgo.com/lite/', `q=${encodeURIComponent(query)}`);
-  if (r.status >= 400) throw new Error(`Web search failed (HTTP ${r.status})`);
-
-  const snippets = [...r.body.matchAll(/result-snippet[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => cleanText(m[1]));
-  const linkRe = /<a\s+rel="nofollow"[^>]*href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const hits: SearchHit[] = [];
-  let m: RegExpExecArray | null;
-  let i = 0;
-  while ((m = linkRe.exec(r.body)) && hits.length < 6) {
-    hits.push({ url: decodeEntities(m[1]), title: cleanText(m[2]), snippet: snippets[i] || '' });
-    i++;
+  // Keyless default: DuckDuckGo lite. Retry once — it occasionally returns an
+  // empty/challenge page that succeeds on a second try.
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await browserPostForm('https://lite.duckduckgo.com/lite/', `q=${encodeURIComponent(query)}`);
+    lastStatus = r.status;
+    if (r.status < 400) {
+      const hits = parseDdgLite(r.body);
+      if (hits.length) return formatResults(query, hits);
+    }
+    if (attempt === 0) await new Promise((res) => setTimeout(res, 900));
   }
-  return formatResults(query, hits);
+  if (lastStatus >= 400) throw new Error(`Web search failed (HTTP ${lastStatus})`);
+  return formatResults(query, []);
 }
 
 /** Short human-readable summary of a tool call for cards / approval prompts. */
