@@ -6,6 +6,25 @@ const CONV_KEY = 'deepseek.conversations';
 const SETTINGS_KEY = 'deepseek.settings';
 const PROFILES_KEY = 'deepseek.profiles';
 const GROUPS_KEY = 'deepseek.groups';
+const MODELS_KEY = 'deepseek.models';
+
+export function loadModels(): string[] {
+  try {
+    const raw = localStorage.getItem(MODELS_KEY);
+    const list = raw ? (JSON.parse(raw) as string[]) : [];
+    return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveModels(ids: string[]): void {
+  try {
+    localStorage.setItem(MODELS_KEY, JSON.stringify(ids));
+  } catch {
+    /* ignore */
+  }
+}
 
 export function loadGroups(): Group[] {
   try {

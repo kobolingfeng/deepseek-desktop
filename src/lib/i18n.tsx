@@ -144,6 +144,10 @@ const en: Dict = {
 
   model_chat_blurb: 'Fast chat & tools',
   model_reasoner_blurb: 'Deep reasoning',
+  modelBlurbFast: 'Fast, great for tools',
+  modelBlurbPro: 'Most capable',
+  modelBlurbReason: 'Deep reasoning',
+  modelBlurbDefault: 'Chat & tools',
   toolsBadge: 'Tools',
   reasoningBadge: 'Reasoning',
 
@@ -326,6 +330,10 @@ const zh: Dict = {
 
   model_chat_blurb: '快速对话与工具',
   model_reasoner_blurb: '深度推理',
+  modelBlurbFast: '快速,适合工具调用',
+  modelBlurbPro: '能力最强',
+  modelBlurbReason: '深度推理',
+  modelBlurbDefault: '对话与工具',
   toolsBadge: '工具',
   reasoningBadge: '推理',
 

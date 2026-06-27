@@ -1,15 +1,17 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { dialog, fs, notification, shell, win } from '../api';
-import { streamChat } from './deepseek';
+import { fetchModels, streamChat } from './deepseek';
 import { newId } from './id';
 import { callMcpTool, connectMcp, findMcpServer, mcpToolSchemas, type McpServerState } from './mcp';
 import {
   loadConversations,
   loadGroups,
+  loadModels,
   loadProfiles,
   loadSettings,
   saveConversations,
   saveGroups,
+  saveModels,
   saveProfiles,
   saveSettings,
 } from './storage';
@@ -22,7 +24,17 @@ import {
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
-import type { Conversation, Group, Message, ModelId, Profile, Settings, ToolCall } from './types';
+import {
+  FALLBACK_MODEL_IDS,
+  modelSupportsTools,
+  type Conversation,
+  type Group,
+  type Message,
+  type ModelId,
+  type Profile,
+  type Settings,
+  type ToolCall,
+} from './types';
 
 function pickProfile(s: Settings): Profile {
   return {
@@ -175,6 +187,10 @@ export function useChat() {
   const [mcpStatus, setMcpStatus] = useState<McpServerState[]>([]);
   const mcpRef = useRef<McpServerState[]>([]);
   const [groups, setGroups] = useState<Group[]>(loadGroups());
+  const [models, setModels] = useState<string[]>(() => {
+    const cached = loadModels();
+    return cached.length ? cached : FALLBACK_MODEL_IDS;
+  });
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);
@@ -194,6 +210,22 @@ export function useChat() {
       offB();
     };
   }, []);
+
+  // Fetch the live model list from the provider's /models endpoint.
+  useEffect(() => {
+    if (!settings.apiKey) return;
+    let cancelled = false;
+    fetchModels(settingsRef.current).then((ids) => {
+      if (cancelled || !ids.length) return;
+      setModels(ids);
+      saveModels(ids);
+      // Auto-correct a selected model the provider no longer serves.
+      if (!ids.includes(settingsRef.current.model)) updateSettings({ model: ids[0] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.apiKey, settings.baseUrl]);
 
   // Connect to MCP servers and load their tools whenever the list changes.
   const mcpKey = JSON.stringify(settings.mcpServers) + '|' + settings.workingDir;
@@ -459,7 +491,7 @@ export function useChat() {
         messages: [
           { id: newId('c'), role: 'user', content: COMPACT_PROMPT + '\n\n---\n' + renderTranscript(older), createdAt: Date.now() },
         ],
-        model: 'deepseek-chat',
+        model: models.find(modelSupportsTools) ?? settingsRef.current.model,
         settings: cfg,
       },
       {},
@@ -532,7 +564,7 @@ export function useChat() {
         conv.updatedAt = Date.now();
         bumpNow();
 
-        const useTools = conv.model !== 'deepseek-reasoner';
+        const useTools = modelSupportsTools(conv.model);
         let activeTools = TOOL_SCHEMAS.filter(
           (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
         );
@@ -794,6 +826,7 @@ export function useChat() {
     statusOpen,
     mcpStatus,
     groups,
+    models,
     // actions
     sendMessage,
     closeStatus,

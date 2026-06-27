@@ -2,7 +2,8 @@
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
-export type ModelId = 'deepseek-chat' | 'deepseek-reasoner';
+// Model ids are dynamic — fetched from the provider's /models endpoint at runtime.
+export type ModelId = string;
 
 export interface ToolCall {
   /** Provider-assigned id (call_xxx). */
@@ -121,7 +122,7 @@ export const DEFAULT_SYSTEM_PROMPT = '';
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   workingDir: '',
   toolPermissions: {
@@ -147,7 +148,21 @@ export const DEFAULT_SETTINGS: Settings = {
   globalMemory: '',
 };
 
-export const MODELS: { id: ModelId; label: string; blurbKey: string; tools: boolean }[] = [
-  { id: 'deepseek-chat', label: 'DeepSeek V4', blurbKey: 'model_chat_blurb', tools: true },
-  { id: 'deepseek-reasoner', label: 'DeepSeek R1', blurbKey: 'model_reasoner_blurb', tools: false },
-];
+// Offline fallback when /models can't be reached; the live list overrides these.
+export const FALLBACK_MODEL_IDS = ['deepseek-v4-flash', 'deepseek-v4-pro'];
+
+/** "deepseek-v4-flash" → "DeepSeek V4 Flash". */
+export function prettyModel(id: string): string {
+  return id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((p) =>
+      /^v\d/i.test(p) ? p.toUpperCase() : p.toLowerCase() === 'deepseek' ? 'DeepSeek' : p.charAt(0).toUpperCase() + p.slice(1),
+    )
+    .join(' ');
+}
+
+/** Reasoning-only models can't use function calling; everything else can. */
+export function modelSupportsTools(id: string): boolean {
+  return !/reason/i.test(id);
+}

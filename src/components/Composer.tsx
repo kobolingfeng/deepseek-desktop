@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { dialog, isNativeRuntime, win } from '../api';
 import { useI18n } from '../lib/i18n';
-import { MODELS, type AgentMode, type ModelId } from '../lib/types';
+import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, deriveApprovalMode, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
 import { nativeListen } from '../lib/voice';
 import type { ChatController } from '../lib/useChat';
@@ -150,7 +150,11 @@ export function Composer({
     {
       cmd: 'model',
       label: t('cmdModel'),
-      run: () => controller.setModel(model === 'deepseek-chat' ? 'deepseek-reasoner' : 'deepseek-chat'),
+      run: () => {
+        const ms = controller.models;
+        if (!ms.length) return;
+        controller.setModel(ms[(ms.indexOf(model) + 1) % ms.length]);
+      },
     },
     {
       cmd: 'cwd',
@@ -313,8 +317,15 @@ export function Composer({
     }
   };
 
-  const currentModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
-  const modelOptions = MODELS.map((m) => ({ id: m.id, label: m.label, desc: t(m.blurbKey) }));
+  const modelBlurb = (id: string) =>
+    /flash/i.test(id)
+      ? t('modelBlurbFast')
+      : /pro/i.test(id)
+        ? t('modelBlurbPro')
+        : /reason/i.test(id)
+          ? t('modelBlurbReason')
+          : t('modelBlurbDefault');
+  const modelOptions = controller.models.map((id) => ({ id, label: prettyModel(id), desc: modelBlurb(id) }));
 
   const permMode = deriveApprovalMode(controller.settings.toolPermissions);
   const PERM_LABEL: Record<string, string> = {
@@ -424,7 +435,7 @@ export function Composer({
             </div>
             <div className="composer-tools">
               <BarMenu
-                chip={<span className="bar-chip-label">{currentModel.label}</span>}
+                chip={<span className="bar-chip-label">{prettyModel(model)}</span>}
                 options={modelOptions}
                 currentId={model}
                 onSelect={(id) => controller.setModel(id as ModelId)}

@@ -3,7 +3,34 @@
 // and falls back to browser fetch streaming when run in a plain browser (dev preview).
 import { http, isNativeRuntime, type StreamEvent } from '../api';
 import { newStreamId } from './id';
-import type { Message, ModelId, Settings, ToolCall } from './types';
+import { modelSupportsTools, type Message, type ModelId, type Settings, type ToolCall } from './types';
+
+/** Fetch the provider's available model ids from the OpenAI-compatible /models endpoint. */
+export async function fetchModels(settings: Settings): Promise<string[]> {
+  const baseUrl = (settings.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const url = `${baseUrl}/models`;
+  const headers = { Authorization: `Bearer ${settings.apiKey}`, Accept: 'application/json' };
+  let body = '';
+  try {
+    // Prefer the renderer fetch; fall back to the native HTTP bridge.
+    body = await fetch(url, { headers }).then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))));
+  } catch {
+    try {
+      const r = await http.get(url, headers);
+      if (r.status >= 400) return [];
+      body = r.body;
+    } catch {
+      return [];
+    }
+  }
+  try {
+    const data = JSON.parse(body);
+    const ids = (data?.data || []).map((m: any) => m?.id).filter((x: any) => typeof x === 'string');
+    return Array.from(new Set(ids));
+  } catch {
+    return [];
+  }
+}
 
 export interface ApiMessage {
   role: string;
@@ -95,7 +122,7 @@ export interface StreamHandle {
 export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHandle {
   const baseUrl = (req.settings.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
   const url = `${baseUrl}/chat/completions`;
-  const useTools = !!(req.tools && req.tools.length) && req.model !== 'deepseek-reasoner';
+  const useTools = !!(req.tools && req.tools.length) && modelSupportsTools(req.model);
 
   const body: Record<string, unknown> = {
     model: req.model,
@@ -103,7 +130,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     stream: true,
     stream_options: { include_usage: true },
   };
-  if (req.model === 'deepseek-chat') body.temperature = req.settings.temperature;
+  if (modelSupportsTools(req.model)) body.temperature = req.settings.temperature;
   if (useTools) {
     body.tools = req.tools;
     body.tool_choice = 'auto';
