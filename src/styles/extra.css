@@ -818,3 +818,49 @@
 .sidebar-menu-item:hover .smi-kbd {
   opacity: 1;
 }
+
+/* ── Empty-state project chooser (agent vs chat) ── */
+.project-chooser {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+}
+.proj-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: border-color var(--dur-1), background var(--dur-1), color var(--dur-1);
+}
+.proj-pick:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.proj-pick.set {
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.proj-pick .proj-ico {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.proj-clear {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+}
+.proj-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}

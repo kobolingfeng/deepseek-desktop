@@ -67,6 +67,14 @@ export interface Conversation {
   archived?: boolean;
   /** Per-conversation working directory override (falls back to the global one). */
   cwd?: string;
+  /** Session type, locked when the first message is sent: 'agent' if a working
+   *  directory (project) was chosen, otherwise 'chat'. */
+  type?: 'chat' | 'agent';
+}
+
+/** A conversation is an "agent" session (has a project working dir) vs a plain chat. */
+export function isAgentConv(c: Conversation): boolean {
+  return c.type ? c.type === 'agent' : !!c.cwd;
 }
 
 /** A user-defined conversation group (folder). */

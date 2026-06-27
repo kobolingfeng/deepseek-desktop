@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
-import type { Conversation, Group, ThemePref } from '../lib/types';
+import { isAgentConv, type Conversation, type Group, type ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
 import { ConfirmDialog } from './ConfirmDialog';
 import { MoveToGroupDialog } from './MoveToGroupDialog';
@@ -139,7 +139,8 @@ export function Sidebar({
   const sections: Section[] = (() => {
     const q = query.trim().toLowerCase();
     const filtered = q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
-    const live = filtered.filter((c) => !c.archived);
+    // Empty/unsent chats don't appear in the sidebar until the first message (Codex-style).
+    const live = filtered.filter((c) => !c.archived && c.messages.length > 0);
     const groupIds = new Set(userGroups.map((g) => g.id));
     const pinned = live.filter((c) => c.pinned).sort(byRecent);
     const rest = live.filter((c) => !c.pinned);
@@ -376,30 +377,34 @@ export function Sidebar({
             >
               {t('exportChat')}
             </button>
-            <button
-              onClick={() => {
-                controller.setConvCwd(c.id);
-                setMenuId(null);
-              }}
-            >
-              {t('convSetCwd')}
-            </button>
-            <button
-              onClick={() => {
-                controller.copyWorkingDir(c.id);
-                setMenuId(null);
-              }}
-            >
-              {t('convCopyCwd')}
-            </button>
-            <button
-              onClick={() => {
-                controller.openWorkingDir(c.id);
-                setMenuId(null);
-              }}
-            >
-              {t('convOpenDir')}
-            </button>
+            {isAgentConv(c) && (
+              <>
+                <button
+                  onClick={() => {
+                    controller.setConvCwd(c.id);
+                    setMenuId(null);
+                  }}
+                >
+                  {t('convSetCwd')}
+                </button>
+                <button
+                  onClick={() => {
+                    controller.copyWorkingDir(c.id);
+                    setMenuId(null);
+                  }}
+                >
+                  {t('convCopyCwd')}
+                </button>
+                <button
+                  onClick={() => {
+                    controller.openWorkingDir(c.id);
+                    setMenuId(null);
+                  }}
+                >
+                  {t('convOpenDir')}
+                </button>
+              </>
+            )}
             <div className="conv-subitem">
               <button className="conv-sub-parent">
                 <span>{t('moveToGroup')}</span>

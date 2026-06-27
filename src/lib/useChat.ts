@@ -390,6 +390,15 @@ export function useChat() {
     const d = effectiveCwd(id);
     if (d) shell.open(d).catch(() => {});
   }
+  function clearConvCwd(id: string) {
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (conv) {
+      conv.cwd = undefined;
+      persist();
+      bumpNow();
+    }
+  }
+
   async function setConvCwd(id: string) {
     try {
       const dir = await dialog.openFolder();
@@ -962,7 +971,10 @@ export function useChat() {
     const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
     const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
     if (attachments.length) userMsg.attachments = attachments;
+    const firstMessage = conv.messages.length === 0;
     conv.messages.push(userMsg);
+    // Lock the session type on the first message: agent if a working dir was set.
+    if (firstMessage) conv.type = conv.cwd ? 'agent' : 'chat';
     if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(trimmed);
     conv.updatedAt = Date.now();
     persist();
@@ -1013,6 +1025,7 @@ export function useChat() {
     copyWorkingDir,
     openWorkingDir,
     setConvCwd,
+    clearConvCwd,
     duplicateConversation,
     exportConversation,
     clearActive,

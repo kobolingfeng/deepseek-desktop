@@ -75,6 +75,18 @@ export function ChatView({
     controller.sendMessage(t('executePlanPrompt'));
   };
 
+  // Empty-state "Choose project": picking a working dir makes this an agent
+  // session (locked on the first message); leaving it unset makes it a chat.
+  const activeCwd = activeConversation?.cwd;
+  const projName = activeCwd ? activeCwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '';
+  const chooseProject = async () => {
+    const id = activeConversation?.id ?? controller.newConversation().id;
+    await controller.setConvCwd(id);
+  };
+  const clearProject = () => {
+    if (activeConversation?.id) controller.clearConvCwd(activeConversation.id);
+  };
+
   return (
     <div className="chat">
       <button
@@ -158,6 +170,33 @@ export function ChatView({
         </div>
       )}
 
+
+      {isEmpty && (
+        <div className="project-chooser">
+          <button
+            className={`proj-pick ${activeCwd ? 'set' : ''}`}
+            onClick={chooseProject}
+            title={activeCwd || t('chooseProjectHint')}
+          >
+            <svg className="proj-ico" viewBox="0 0 24 24" width="15" height="15" aria-hidden>
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"
+              />
+            </svg>
+            <span>{activeCwd ? projName : t('chooseProject')}</span>
+          </button>
+          {activeCwd && (
+            <button className="proj-clear" onClick={clearProject} title={t('dontWorkInProject')}>
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       <Composer
         controller={controller}
