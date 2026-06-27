@@ -7,6 +7,12 @@ import { extractChanges } from '../lib/diff';
 import { useI18n, type Lang } from '../lib/i18n';
 import type { Message as Msg } from '../lib/types';
 
+// Hidden from the transcript per user preference. These still execute and are
+// sent to the model — they're just not shown. Flip SHOW_REASONING / edit the set
+// to bring rows back.
+const SHOW_REASONING = false;
+const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir']);
+
 function clockTime(ts: number, lang: Lang): string {
   const d = new Date(ts);
   const h = d.getHours();
@@ -136,14 +142,31 @@ export function Message({
 
   // assistant
   const streaming = !!message.pending;
-  const empty = !message.content && !message.reasoning && !(message.toolCalls && message.toolCalls.length);
+  const showReasoning = SHOW_REASONING && !!message.reasoning;
+  const visibleTools = (message.toolCalls || []).filter((tc) => !HIDDEN_TOOL_ROWS.has(tc.name));
+  const empty = !message.content && !showReasoning && visibleTools.length === 0;
+
+  // Edited-files summary uses ALL tool results (not just the visible rows).
+  const turn: Msg[] = [message];
+  if (message.toolCalls)
+    for (const tc of message.toolCalls) {
+      const r = tc.id ? toolResults.get(tc.id) : undefined;
+      if (r) turn.push(r);
+    }
+  const changes = streaming ? [] : extractChanges(turn);
+
+  // If everything this step would show is hidden, drop the message so the
+  // transcript doesn't accumulate blank gaps from hidden-only steps.
+  if (!streaming && empty && changes.length === 0 && !message.error) return null;
 
   return (
     <div className="msg assistant">
       <div className="assistant-body">
-        {message.reasoning && <ThinkingBlock text={message.reasoning} streaming={streaming && !message.content} />}
+        {showReasoning && message.reasoning && (
+          <ThinkingBlock text={message.reasoning} streaming={streaming && !message.content} />
+        )}
 
-        {message.toolCalls?.map((tc, i) => (
+        {visibleTools.map((tc, i) => (
           <ToolCallCard key={tc.id || `${tc.name}:${i}`} call={tc} result={tc.id ? toolResults.get(tc.id) : undefined} />
         ))}
 
@@ -154,31 +177,20 @@ export function Message({
 
         {message.error && <div className="msg-error">⚠ {message.error}</div>}
 
-        {!streaming &&
-          (() => {
-            const turn: Msg[] = [message];
-            if (message.toolCalls)
-              for (const tc of message.toolCalls) {
-                const r = tc.id ? toolResults.get(tc.id) : undefined;
-                if (r) turn.push(r);
-              }
-            const ch = extractChanges(turn);
-            if (!ch.length) return null;
-            return (
-              <div className="edited-files">
-                {ch.map((c, i) => (
-                  <button key={i} className="edited-file" onClick={onReview} title={c.path}>
-                    <span className="edited-file-verb">{t('editedVerb')}</span>
-                    <span className="edited-file-name">{c.path.split(/[\\/]/).pop()}</span>
-                    <span className="edited-file-stat">
-                      <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
-                    </span>
-                    <span className="edited-file-chev">›</span>
-                  </button>
-                ))}
-              </div>
-            );
-          })()}
+        {changes.length > 0 && (
+          <div className="edited-files">
+            {changes.map((c, i) => (
+              <button key={i} className="edited-file" onClick={onReview} title={c.path}>
+                <span className="edited-file-verb">{t('editedVerb')}</span>
+                <span className="edited-file-name">{c.path.split(/[\\/]/).pop()}</span>
+                <span className="edited-file-stat">
+                  <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
+                </span>
+                <span className="edited-file-chev">›</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {!streaming && message.content && (
           <MessageActions content={message.content} meta={metaLine(message, lang)} />
