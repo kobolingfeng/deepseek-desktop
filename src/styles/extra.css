@@ -498,3 +498,48 @@
   max-height: 340px;
   overflow-y: auto;
 }
+
+/* ── Per-turn edited files: compact subtle rows (like tool rows) ── */
+.edited-files {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-2);
+}
+.edited-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  color: var(--text-tertiary);
+  transition: background var(--dur-1);
+}
+.edited-file:hover {
+  background: var(--bg-hover);
+}
+.edited-file-verb {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+.edited-file-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edited-file-stat {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.edited-file-chev {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}

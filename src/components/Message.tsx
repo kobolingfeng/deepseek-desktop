@@ -164,16 +164,19 @@ export function Message({
               }
             const ch = extractChanges(turn);
             if (!ch.length) return null;
-            const a = ch.reduce((s, c) => s + c.additions, 0);
-            const d = ch.reduce((s, c) => s + c.deletions, 0);
             return (
-              <button className="edited-card" onClick={onReview}>
-                <span className="edited-card-text">
-                  📝 {t('panelEditedN', { n: String(ch.length) })} <span className="diff-add">+{a}</span>{' '}
-                  <span className="diff-del">-{d}</span>
-                </span>
-                <span className="edited-card-review">{t('reviewChanges')} →</span>
-              </button>
+              <div className="edited-files">
+                {ch.map((c, i) => (
+                  <button key={i} className="edited-file" onClick={onReview} title={c.path}>
+                    <span className="edited-file-verb">{t('editedVerb')}</span>
+                    <span className="edited-file-name">{c.path.split(/[\\/]/).pop()}</span>
+                    <span className="edited-file-stat">
+                      <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
+                    </span>
+                    <span className="edited-file-chev">›</span>
+                  </button>
+                ))}
+              </div>
             );
           })()}
 
