@@ -313,6 +313,18 @@ export function useChat() {
 
   // ── Conversation management ──────────────────────────
   function newConversation(): Conversation {
+    // Codex-style: don't pile up empty chats. If there's already an unsent one
+    // (prefer the active chat), just switch to it instead of creating another.
+    const active = convsRef.current.find((c) => c.id === activeId);
+    const empty =
+      active && active.messages.length === 0 && !active.archived
+        ? active
+        : convsRef.current.find((c) => c.messages.length === 0 && !c.archived);
+    if (empty) {
+      setActiveId(empty.id);
+      bumpNow();
+      return empty;
+    }
     const conv = makeConversation(settingsRef.current.model);
     convsRef.current = [conv, ...convsRef.current];
     setActiveId(conv.id);

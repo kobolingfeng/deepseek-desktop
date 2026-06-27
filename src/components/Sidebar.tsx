@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import type { Conversation, Group, ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
@@ -87,6 +87,25 @@ export function Sidebar({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [submenuLeft, setSubmenuLeft] = useState(false);
   const userGroups = controller.groups;
+
+  const handleNewChat = () => {
+    controller.newConversation(); // reuses an existing empty chat instead of duplicating
+    setQuery('');
+    onCloseSettings();
+  };
+  // Ctrl/Cmd+N → new chat (latest handler via ref so the listener mounts once).
+  const newChatRef = useRef(handleNewChat);
+  newChatRef.current = handleNewChat;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        newChatRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Position the kebab menu with fixed coords so it escapes the sidebar's scroll
   // clipping (lets the submenu fly out to the right like Claude/Codex Desktop).
@@ -437,15 +456,21 @@ export function Sidebar({
 
   return (
     <aside className="sidebar">
-      <button
-        className="new-chat"
-        onClick={() => {
-          controller.newConversation();
-          setQuery('');
-          onCloseSettings();
-        }}
-      >
-        <span className="plus">＋</span> {t('newChat')}
+      <button className="new-chat" onClick={handleNewChat}>
+        <span className="nc-left">
+          <svg className="nc-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
+            />
+          </svg>
+          {t('newChat')}
+        </span>
+        <kbd className="nc-kbd">Ctrl+N</kbd>
       </button>
 
       <div className="sidebar-search">

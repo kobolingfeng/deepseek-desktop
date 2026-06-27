@@ -624,3 +624,29 @@
   border: none;
   padding: 1px 5px;
 }
+
+/* ── New chat button: compose icon + Ctrl+N hint (Codex-style) ── */
+.new-chat {
+  justify-content: space-between;
+}
+.new-chat .nc-left {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.new-chat .nc-ico {
+  flex-shrink: 0;
+}
+.new-chat .nc-kbd {
+  font-family: inherit;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--text-on-accent) 20%, transparent);
+  opacity: 0;
+  transition: opacity var(--dur-1);
+}
+.new-chat:hover .nc-kbd {
+  opacity: 0.85;
+}
