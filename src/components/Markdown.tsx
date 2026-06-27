@@ -1,4 +1,4 @@
-import { memo, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, memo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -9,6 +9,15 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
   const { t } = useI18n();
   const ref = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
+
+  // Extract the language from the inner <code class="language-xxx">.
+  let lang = '';
+  const child = Children.toArray(children)[0];
+  if (isValidElement(child)) {
+    const cls = (child.props as { className?: string })?.className || '';
+    const m = /language-([\w-]+)/.exec(cls);
+    if (m) lang = m[1];
+  }
 
   const copy = async () => {
     const text = ref.current?.innerText ?? '';
@@ -27,9 +36,12 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
 
   return (
     <div className="code-block">
-      <button className="code-copy" onClick={copy} title={t('copy')}>
-        {copied ? '✓ ' + t('copied') : t('copy')}
-      </button>
+      <div className="code-head">
+        <span className="code-lang">{lang || 'code'}</span>
+        <button className="code-copy" onClick={copy} title={t('copy')}>
+          {copied ? '✓ ' + t('copied') : t('copy')}
+        </button>
+      </div>
       <pre ref={ref} {...props}>
         {children}
       </pre>
@@ -49,7 +61,13 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
   );
 }
 
-export const Markdown = memo(function Markdown({ text, highlight = true }: { text: string; highlight?: boolean }) {
+export const Markdown = memo(function Markdown({
+  text,
+  highlight = true,
+}: {
+  text: string;
+  highlight?: boolean;
+}) {
   return (
     <div className="markdown">
       <ReactMarkdown

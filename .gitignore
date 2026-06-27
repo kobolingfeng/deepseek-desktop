@@ -14,3 +14,4 @@ native/app.res
 *.lib
 *.res
 .DS_Store
+assets/mockups/

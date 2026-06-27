@@ -1,7 +1,36 @@
+import { useState } from 'react';
 import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
+import { clipboard } from '../api';
+import { useI18n } from '../lib/i18n';
 import type { Message as Msg } from '../lib/types';
+
+function MessageActions({ content, meta }: { content: string; meta?: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await clipboard.writeText(content);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(content);
+      } catch {
+        /* ignore */
+      }
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div className="msg-actions">
+      <button className="msg-action" onClick={copy} title={t('copy')}>
+        {copied ? '✓ ' + t('copied') : '⧉ ' + t('copy')}
+      </button>
+      {meta && <span className="msg-meta">{meta}</span>}
+    </div>
+  );
+}
 
 export function Message({
   message,
@@ -47,10 +76,15 @@ export function Message({
 
         {message.error && <div className="msg-error">⚠ {message.error}</div>}
 
-        {!streaming && message.elapsedMs != null && (message.content || message.error) && (
-          <div className="msg-meta">
-            {message.model} · {(message.elapsedMs / 1000).toFixed(1)}s
-          </div>
+        {!streaming && message.content && (
+          <MessageActions
+            content={message.content}
+            meta={
+              message.elapsedMs != null
+                ? `${message.model} · ${(message.elapsedMs / 1000).toFixed(1)}s`
+                : undefined
+            }
+          />
         )}
       </div>
     </div>
