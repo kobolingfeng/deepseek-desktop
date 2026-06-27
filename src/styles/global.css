@@ -894,6 +894,15 @@ textarea {
   opacity: 0.4;
   cursor: default;
 }
+.composer-tool.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.composer-tool.listening {
+  color: var(--danger);
+  background: var(--danger-soft);
+  animation: pulse 1.2s ease-in-out infinite;
+}
 .send-btn {
   width: 34px;
   height: 34px;

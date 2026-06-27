@@ -36,6 +36,9 @@ const en: Dict = {
   disclaimer: 'DeepSeek can make mistakes. Consider checking important information.',
   attachFile: 'Insert a file path',
   insertCode: 'Insert a code block',
+  webSearch: 'Web search',
+  voiceInput: 'Voice input',
+  voiceUnsupported: 'Voice input is not available in this environment',
   send: 'Send',
   stop: 'Stop',
 
@@ -117,6 +120,9 @@ const zh: Dict = {
   disclaimer: 'DeepSeek 可能会出错,请核查重要信息。',
   attachFile: '插入文件路径',
   insertCode: '插入代码块',
+  webSearch: '联网搜索',
+  voiceInput: '语音输入',
+  voiceUnsupported: '此环境不支持语音输入',
   send: '发送',
   stop: '停止',
 

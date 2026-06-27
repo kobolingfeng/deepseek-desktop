@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { dialog } from '../api';
 import { useI18n } from '../lib/i18n';
 
+const SpeechRec: any =
+  typeof window !== 'undefined'
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : undefined;
+
 export function Composer({
   generating,
   onSend,
@@ -15,9 +20,12 @@ export function Composer({
   disabled?: boolean;
   placeholder?: string;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [text, setText] = useState('');
+  const [searchOn, setSearchOn] = useState(false);
+  const [listening, setListening] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const recRef = useRef<any>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -58,6 +66,39 @@ export function Composer({
     ref.current?.focus();
   };
 
+  const toggleVoice = () => {
+    if (!SpeechRec) return;
+    if (listening) {
+      recRef.current?.stop();
+      return;
+    }
+    try {
+      const rec = new SpeechRec();
+      rec.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
+      rec.interimResults = true;
+      rec.continuous = false;
+      const base = text;
+      rec.onresult = (e: any) => {
+        let s = '';
+        for (let i = 0; i < e.results.length; i++) s += e.results[i][0].transcript;
+        setText((base ? base.replace(/\s*$/, ' ') : '') + s);
+      };
+      rec.onend = () => {
+        setListening(false);
+        recRef.current = null;
+      };
+      rec.onerror = () => {
+        setListening(false);
+        recRef.current = null;
+      };
+      recRef.current = rec;
+      setListening(true);
+      rec.start();
+    } catch {
+      setListening(false);
+    }
+  };
+
   return (
     <div className="composer">
       <div className="composer-inner">
@@ -85,26 +126,70 @@ export function Composer({
                   />
                 </svg>
               </button>
-              <button className="composer-tool mono" onClick={insertCode} title={t('insertCode')} disabled={disabled}>
-                {'{ }'}
-              </button>
-            </div>
-            {generating ? (
-              <button className="send-btn stop" onClick={onStop} title={t('stop')}>
-                <span className="stop-square" />
-              </button>
-            ) : (
-              <button
-                className="send-btn"
-                onClick={submit}
-                disabled={!text.trim() || disabled}
-                title={t('send')}
-              >
+              <button className="composer-tool" onClick={insertCode} title={t('insertCode')} disabled={disabled}>
                 <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
-                  <path fill="currentColor" d="M1.7 7.3 14 2.1c.5-.2 1 .3.8.8L9.6 15c-.2.5-.9.5-1.1 0L6.9 9.9a.5.5 0 0 0-.3-.3L1.7 8.4c-.5-.2-.5-.9 0-1.1Z" />
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6.4 3.3c-1.2 0-1.7.5-1.7 1.7v1c0 .9-.4 1.3-1.2 1.3.8 0 1.2.4 1.2 1.3v1c0 1.2.5 1.7 1.7 1.7M9.6 3.3c1.2 0 1.7.5 1.7 1.7v1c0 .9.4 1.3 1.2 1.3-.8 0-1.2.4-1.2 1.3v1c0 1.2-.5 1.7-1.7 1.7"
+                  />
                 </svg>
               </button>
-            )}
+              <button
+                className={`composer-tool ${searchOn ? 'active' : ''}`}
+                onClick={() => setSearchOn((v) => !v)}
+                title={t('webSearch')}
+                disabled={disabled}
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    d="M2 8h12M8 2c2.2 2 2.2 10 0 12M8 2c-2.2 2-2.2 10 0 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="composer-tools">
+              <button
+                className={`composer-tool ${listening ? 'listening' : ''}`}
+                onClick={toggleVoice}
+                title={SpeechRec ? t('voiceInput') : t('voiceUnsupported')}
+                disabled={disabled || !SpeechRec}
+              >
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                  <rect x="6" y="2" width="4" height="7" rx="2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    d="M4 7.6a4 4 0 0 0 8 0M8 11.6V14M6 14h4"
+                  />
+                </svg>
+              </button>
+              {generating ? (
+                <button className="send-btn stop" onClick={onStop} title={t('stop')}>
+                  <span className="stop-square" />
+                </button>
+              ) : (
+                <button
+                  className="send-btn"
+                  onClick={submit}
+                  disabled={!text.trim() || disabled}
+                  title={t('send')}
+                >
+                  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden>
+                    <path fill="currentColor" d="M1.7 7.3 14 2.1c.5-.2 1 .3.8.8L9.6 15c-.2.5-.9.5-1.1 0L6.9 9.9a.5.5 0 0 0-.3-.3L1.7 8.4c-.5-.2-.5-.9 0-1.1Z" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
         </div>
         <div className="composer-hint">{t('disclaimer')}</div>
