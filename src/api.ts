@@ -176,6 +176,22 @@ export const shell = {
             invoke<{ ok: boolean; output?: string; exited?: boolean; exitCode?: number; error?: string }>('shell.session.read', { id }),
         kill: (id: number) => invoke<{ ok: boolean; error?: string }>('shell.session.kill', { id }),
     },
+    // ── Interactive pseudo-console (ConPTY) backing the in-app xterm terminal ──
+    pty: {
+        start: (program: string, opts?: { args?: string[]; cwd?: string; cols?: number; rows?: number }) =>
+            invoke<{ ptyId: number; pid: number }>('pty.start', {
+                program,
+                args: opts?.args ?? [],
+                cwd: opts?.cwd ?? '',
+                cols: opts?.cols ?? 80,
+                rows: opts?.rows ?? 24,
+            }),
+        write: (id: number, data: string) => invoke<{ ok: boolean; exited?: boolean }>('pty.write', { id, data }),
+        read: (id: number) =>
+            invoke<{ ok: boolean; output?: string; exited?: boolean; exitCode?: number }>('pty.read', { id }),
+        resize: (id: number, cols: number, rows: number) => invoke<{ ok: boolean }>('pty.resize', { id, cols, rows }),
+        kill: (id: number) => invoke<{ ok: boolean }>('pty.kill', { id }),
+    },
 };
 
 // ── App ───────────────────────────────────────

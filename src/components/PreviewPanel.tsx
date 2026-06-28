@@ -5,10 +5,11 @@ import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
 import { isPrivateUrl } from '../lib/tools';
 import { isOfficeFile, officePreviewHtml } from '../lib/office';
+import { TerminalPanel } from './TerminalPanel';
 import type { ChatController } from '../lib/useChat';
 import type { Conversation } from '../lib/types';
 
-const TABS = ['changes', 'preview', 'tasks'] as const;
+const TABS = ['changes', 'preview', 'tasks', 'terminal'] as const;
 
 export function PreviewPanel({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
@@ -16,6 +17,11 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
   // While dragging the resize handle we kill the width transition so it tracks the cursor.
   const [resizing, setResizing] = useState(false);
   const open = controller.panelOpen;
+  // Keep the terminal mounted once opened (so its session survives tab switches); just hide it.
+  const [termMounted, setTermMounted] = useState(false);
+  useEffect(() => {
+    if (tab === 'terminal') setTermMounted(true);
+  }, [tab]);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -57,6 +63,11 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
           {tab === 'changes' && <ChangesTab controller={controller} />}
           {tab === 'preview' && <PreviewTab controller={controller} />}
           {tab === 'tasks' && <TasksTab controller={controller} />}
+          {termMounted && (
+            <div className="term-wrap" hidden={tab !== 'terminal'}>
+              <TerminalPanel cwd={controller.activeConversation?.cwd || controller.settings.workingDir} />
+            </div>
+          )}
         </div>
       </div>
     </aside>

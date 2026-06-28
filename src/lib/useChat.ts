@@ -260,7 +260,7 @@ export function useChat() {
   });
   // Right preview/changes/tasks panel
   const [panelOpen, setPanelOpen] = useState(false);
-  const [panelTab, setPanelTab] = useState<'changes' | 'preview' | 'tasks'>('changes');
+  const [panelTab, setPanelTab] = useState<'changes' | 'preview' | 'tasks' | 'terminal'>('changes');
   const [panelWidth, setPanelWidthState] = useState(() => loadPanelPrefs().width || 460);
   const [previewUrl, setPreviewUrlState] = useState(() => loadPanelPrefs().url || '');
   // Bumped on every setPreviewUrl call so re-pointing at the SAME file (e.g. the agent

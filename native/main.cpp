@@ -2736,6 +2736,218 @@ static void reg_extras() {
         }).detach();
         return json{{"ok", true}};
     });
+
+    // ── Interactive PTY (ConPTY) for the in-app xterm terminal ──────────────
+    // Separate from shell.session (which uses plain pipes for the agent): a real
+    // pseudo-console gives the shell its prompt, colours, and full-screen apps, and its
+    // output carries ANSI escapes for xterm.js to render.
+    struct Pty {
+        std::atomic<DWORD> pid{0};
+        HANDLE hInW{nullptr};
+        HPCON hPC{nullptr};
+        std::string buf;
+        std::mutex bufMutex;
+        std::atomic<bool> exited{false};
+        std::atomic<DWORD> exitCode{0};
+        std::mutex inMutex;
+        bool inOpen{true};
+    };
+    static std::mutex g_ptyMutex;
+    static std::unordered_map<int, std::shared_ptr<Pty>> g_ptys;
+    static std::atomic<int> g_nextPtyId{1};
+
+    ipc_on("pty.start", [](const json& a) -> json {
+        auto program = a.value("program", std::string{});
+        if (program.empty()) throw std::runtime_error("program is required");
+        std::wstring cwdW = U2W(a.value("cwd", std::string{}));
+        std::wstring cmdLine = quote_windows_arg(U2W(program));
+        if (a.contains("args") && a["args"].is_array()) {
+            for (auto& arg : a["args"]) {
+                if (!arg.is_string()) throw std::runtime_error("args must be strings");
+                cmdLine += L" ";
+                cmdLine += quote_windows_arg(U2W(arg.get<std::string>()));
+            }
+        }
+        SHORT cols = (SHORT)((std::max)(1, a.value("cols", 80)));
+        SHORT rows = (SHORT)((std::max)(1, a.value("rows", 24)));
+
+        SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+        HANDLE inR = nullptr, inW = nullptr, outR = nullptr, outW = nullptr;
+        if (!CreatePipe(&inR, &inW, &sa, 0) || !CreatePipe(&outR, &outW, &sa, 0)) {
+            if (inR) CloseHandle(inR);
+            if (inW) CloseHandle(inW);
+            if (outR) CloseHandle(outR);
+            if (outW) CloseHandle(outW);
+            throw std::runtime_error("failed to create pty pipes");
+        }
+        HPCON hPC = nullptr;
+        HRESULT hr = CreatePseudoConsole(COORD{cols, rows}, inR, outW, 0, &hPC);
+        CloseHandle(inR);  // ConPTY duplicated the ends it needs
+        CloseHandle(outW);
+        if (FAILED(hr)) {
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("CreatePseudoConsole failed");
+        }
+        SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOEXW si{};
+        si.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+        SIZE_T attrBytes = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &attrBytes);
+        si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(), 0, attrBytes);
+        if (!si.lpAttributeList ||
+            !InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attrBytes) ||
+            !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC, sizeof(hPC), nullptr, nullptr)) {
+            if (si.lpAttributeList) HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
+            ClosePseudoConsole(hPC);
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("failed to set up pty attributes");
+        }
+
+        PROCESS_INFORMATION pi{};
+        std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
+        cmd.push_back(0);
+        BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, nullptr,
+            (cwdW.empty() ? nullptr : cwdW.c_str()), &si.StartupInfo, &pi);
+        DeleteProcThreadAttributeList(si.lpAttributeList);
+        HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
+        if (!ok) {
+            ClosePseudoConsole(hPC);
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("failed to start pty process");
+        }
+        CloseHandle(pi.hThread);
+
+        auto p = std::make_shared<Pty>();
+        p->pid = pi.dwProcessId;
+        p->hInW = inW;
+        p->hPC = hPC;
+        int id = g_nextPtyId.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            g_ptys[id] = p;
+        }
+
+        // Reader thread owns outR + the process handle (mirrors the session reader).
+        HANDLE hProc = pi.hProcess;
+        std::thread([p, outR, hProc]() {
+            char b[4096];
+            DWORD rd;
+            while (ReadFile(outR, b, sizeof(b), &rd, nullptr) && rd > 0) {
+                std::lock_guard<std::mutex> lk(p->bufMutex);
+                p->buf.append(b, rd);
+                if (p->buf.size() > (1u << 21)) p->buf.erase(0, p->buf.size() - (1u << 20));
+            }
+            CloseHandle(outR);
+            WaitForSingleObject(hProc, INFINITE);
+            DWORD ec = 0;
+            GetExitCodeProcess(hProc, &ec);
+            p->exitCode = ec;
+            p->exited = true;
+            CloseHandle(hProc);
+            std::lock_guard<std::mutex> lk(p->inMutex);
+            if (p->inOpen) {
+                CloseHandle(p->hInW);
+                p->inOpen = false;
+            }
+        }).detach();
+
+        return json{{"ptyId", id}, {"pid", (int)pi.dwProcessId}};
+    });
+
+    // Write raw keystrokes to the pty (no added newline; terminal keys are tiny → inline).
+    ipc_on("pty.write", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::string data = a.value("data", std::string{});
+        std::shared_ptr<Pty> p;
+        {
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            auto it = g_ptys.find(id);
+            if (it != g_ptys.end()) p = it->second;
+        }
+        if (!p) return json{{"ok", false}, {"error", "pty not found"}};
+        if (p->exited.load()) return json{{"ok", false}, {"exited", true}};
+        std::lock_guard<std::mutex> lk(p->inMutex);
+        if (p->inOpen) {
+            DWORD wr = 0;
+            WriteFile(p->hInW, data.data(), (DWORD)data.size(), &wr, nullptr);
+        }
+        return json{{"ok", true}};
+    });
+
+    // Drain the pty's accumulated output (ANSI included) and report exit.
+    ipc_on("pty.read", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::shared_ptr<Pty> p;
+        {
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            auto it = g_ptys.find(id);
+            if (it != g_ptys.end()) p = it->second;
+        }
+        if (!p) return json{{"ok", false}, {"error", "pty not found"}};
+        std::string out;
+        {
+            std::lock_guard<std::mutex> lk(p->bufMutex);
+            out.swap(p->buf);
+        }
+        bool exited = p->exited.load();
+        json r{{"ok", true}, {"output", to_utf8_console(out)}, {"exited", exited}};
+        if (exited) r["exitCode"] = (int)p->exitCode.load();
+        if (exited && out.empty()) { // reap a finished, fully-drained pty (closes the console)
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            if (p->hPC) { ClosePseudoConsole(p->hPC); p->hPC = nullptr; }
+            g_ptys.erase(id);
+        }
+        return r;
+    });
+
+    ipc_on("pty.resize", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::shared_ptr<Pty> p;
+        {
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            auto it = g_ptys.find(id);
+            if (it != g_ptys.end()) p = it->second;
+        }
+        if (!p || !p->hPC) return json{{"ok", false}};
+        SHORT cols = (SHORT)((std::max)(1, a.value("cols", 80)));
+        SHORT rows = (SHORT)((std::max)(1, a.value("rows", 24)));
+        ResizePseudoConsole(p->hPC, COORD{cols, rows});
+        return json{{"ok", true}};
+    });
+
+    ipc_on("pty.kill", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::shared_ptr<Pty> p;
+        {
+            std::lock_guard<std::mutex> lk(g_ptyMutex);
+            auto it = g_ptys.find(id);
+            if (it != g_ptys.end()) {
+                p = it->second;
+                g_ptys.erase(it);
+            }
+        }
+        if (!p) return json{{"ok", false}, {"error", "pty not found"}};
+        std::thread([p]() {
+            DWORD pid = p->pid.load();
+            if (pid) killTree(pid);
+            if (p->hPC) {
+                ClosePseudoConsole(p->hPC);
+                p->hPC = nullptr;
+            }
+            std::lock_guard<std::mutex> lk(p->inMutex);
+            if (p->inOpen) {
+                CloseHandle(p->hInW);
+                p->inOpen = false;
+            }
+        }).detach();
+        return json{{"ok", true}};
+    });
 }
 
 // ================================================================

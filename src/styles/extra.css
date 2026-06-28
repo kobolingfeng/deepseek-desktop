@@ -135,6 +135,24 @@
   display: flex;
   flex-direction: column;
 }
+.term-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.term-wrap[hidden] {
+  display: none;
+}
+.terminal-host {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px 4px 8px;
+  box-sizing: border-box;
+  background: var(--bg-sidebar);
+}
+.terminal-host .xterm {
+  height: 100%;
+}
 .side-empty {
   margin: auto;
   padding: var(--space-6);
