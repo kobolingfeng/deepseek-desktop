@@ -15,9 +15,9 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_url', defaultPerm: 'allow' },
   { name: 'read_office', defaultPerm: 'allow' },
   { name: 'update_plan', defaultPerm: 'allow' },
-  { name: 'edit_file', defaultPerm: 'ask' },
-  { name: 'write_file', defaultPerm: 'ask' },
-  { name: 'write_excel', defaultPerm: 'ask' },
+  { name: 'edit_file', defaultPerm: 'allow' },
+  { name: 'write_file', defaultPerm: 'allow' },
+  { name: 'write_excel', defaultPerm: 'allow' },
   { name: 'run_command', defaultPerm: 'ask' },
 ];
 
@@ -38,22 +38,27 @@ export function isKnownTool(name: string): boolean {
 // ── Quick approval modes (composer chip) ──────────────
 // Map a single mode onto per-tool permissions; Settings can still fine-tune,
 // which makes the composer show "Custom".
-export type ApprovalMode = 'ask' | 'auto' | 'full';
+// Codex-style presets: Read Only / Auto (default) / Full Access.
+export type ApprovalMode = 'read' | 'auto' | 'full';
 export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'run_command'];
+const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan'];
 
 export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
   const out: Record<string, ToolPerm> = {};
   for (const t of TOOL_LIST) {
     if (mode === 'full') out[t.name] = 'allow';
-    else if (mode === 'auto') out[t.name] = t.name === 'run_command' ? 'ask' : 'allow';
-    else out[t.name] = DANGEROUS_TOOLS.includes(t.name) ? 'ask' : 'allow';
+    // Read Only: only reading is free; edits, commands, and web access need approval.
+    else if (mode === 'read') out[t.name] = READONLY_TOOLS.includes(t.name) ? 'allow' : 'ask';
+    // Auto (default): read + edit files + web freely; shell commands still confirm —
+    // unlike Codex we have no command sandbox, so run_command stays gated for safety.
+    else out[t.name] = t.name === 'run_command' ? 'ask' : 'allow';
   }
   return out;
 }
 
 export function deriveApprovalMode(perms: Record<string, ToolPerm> | undefined): ApprovalMode | 'custom' {
   const p = perms || {};
-  for (const mode of ['ask', 'auto', 'full'] as ApprovalMode[]) {
+  for (const mode of ['read', 'auto', 'full'] as ApprovalMode[]) {
     const preset = approvalModePerms(mode);
     if (TOOL_LIST.every((t) => (p[t.name] ?? t.defaultPerm) === preset[t.name])) return mode;
   }

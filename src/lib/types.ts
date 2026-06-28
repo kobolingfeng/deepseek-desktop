@@ -137,6 +137,8 @@ export const DEFAULT_SETTINGS: Settings = {
   model: 'deepseek-v4-flash',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   workingDir: '',
+  // Default = the Codex-style "Auto" preset (read + edit files + web freely;
+  // run_command confirms). Keep in sync with approvalModePerms('auto') in tools.ts.
   toolPermissions: {
     read_file: 'allow',
     list_dir: 'allow',
@@ -144,9 +146,11 @@ export const DEFAULT_SETTINGS: Settings = {
     search_files: 'allow',
     web_search: 'allow',
     read_url: 'allow',
+    read_office: 'allow',
     update_plan: 'allow',
-    edit_file: 'ask',
-    write_file: 'ask',
+    edit_file: 'allow',
+    write_file: 'allow',
+    write_excel: 'allow',
     run_command: 'ask',
   },
   searchEndpoint: '',

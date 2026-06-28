@@ -283,13 +283,13 @@ export function Composer({
 
   const permMode = deriveApprovalMode(controller.settings.toolPermissions);
   const PERM_LABEL: Record<string, string> = {
-    ask: t('approvalAsk'),
+    read: t('approvalRead'),
     auto: t('approvalAuto'),
     full: t('approvalFull'),
     custom: t('approvalCustom'),
   };
   const permOptions = [
-    { id: 'ask', label: t('approvalAsk'), desc: t('approvalAskDesc') },
+    { id: 'read', label: t('approvalRead'), desc: t('approvalReadDesc') },
     { id: 'auto', label: t('approvalAuto'), desc: t('approvalAutoDesc') },
     { id: 'full', label: t('approvalFull'), desc: t('approvalFullDesc') },
   ];
