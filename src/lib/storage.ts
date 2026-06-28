@@ -133,6 +133,10 @@ export function loadConversations(): Conversation[] {
         messages: Array.isArray(c.messages) ? c.messages : [],
         createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now(),
         updatedAt: typeof c.updatedAt === 'number' ? c.updatedAt : c.createdAt || Date.now(),
+        // Transient per-turn state must not survive a reload (no turn is running on load).
+        queued: undefined,
+        activeTool: undefined,
+        turnStartedAt: undefined,
       }));
   } catch {
     return [];

@@ -24,6 +24,7 @@ async function rpc(
   sessionId: string | undefined,
   method: string,
   params: any,
+  signal?: AbortSignal,
 ): Promise<{ result?: any; error?: any; sessionId?: string }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -33,6 +34,11 @@ async function rpc(
   const reqId = nextId++;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
+  // Let an external signal (turn Stop / conversation delete) abort this request too.
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+  }
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -114,8 +120,8 @@ export async function connectMcp(name: string, url: string): Promise<McpServerSt
   }
 }
 
-export async function callMcpTool(server: McpServerState, toolName: string, args: any): Promise<string> {
-  const r = await rpc(server.url, server.sessionId, 'tools/call', { name: toolName, arguments: args });
+export async function callMcpTool(server: McpServerState, toolName: string, args: any, signal?: AbortSignal): Promise<string> {
+  const r = await rpc(server.url, server.sessionId, 'tools/call', { name: toolName, arguments: args }, signal);
   if (r.error) throw new Error(r.error.message || 'tool call failed');
   const content = r.result?.content;
   const out = Array.isArray(content)

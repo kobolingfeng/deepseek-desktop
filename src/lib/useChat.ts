@@ -756,6 +756,7 @@ export function useChat() {
     runningIdsRef.current.add(conv.id);
     const startedAt = Date.now();
     conv.turnStartedAt = startedAt; // single continuous status timer for the whole turn
+    const turnStartIndex = conv.messages.length; // for the preview scan: this turn's output only
     bumpNow();
     const cfg = settingsRef.current; // immutable snapshot for this turn
     const turnMcp = mcpRef.current; // MCP servers as of turn start
@@ -937,8 +938,8 @@ export function useChat() {
             } else {
               const full = deriveApprovalMode(settingsRef.current.toolPermissions) === 'full';
               const approved = full ? true : await requestApproval(conv.id, tc);
-              if (!approved) {
-                out = 'User denied this action.';
+              if (!approved || turn.stopped) {
+                out = turn.stopped ? 'Stopped.' : 'User denied this action.';
                 isErr = true;
               } else {
                 let a: any = {};
@@ -947,11 +948,15 @@ export function useChat() {
                 } catch {
                   /* ignore */
                 }
+                const ctrl = new AbortController();
+                turn.toolCancel = () => ctrl.abort();
                 try {
-                  out = await callMcpTool(server, tool, a);
+                  out = await callMcpTool(server, tool, a, ctrl.signal);
                 } catch (e: any) {
                   out = 'Error: ' + (e?.message || String(e));
                   isErr = true;
+                } finally {
+                  turn.toolCancel = null;
                 }
               }
             }
@@ -1106,12 +1111,12 @@ export function useChat() {
           // Scan the recent turn (assistant replies AND tool outputs, e.g. a dev-server
           // banner) for a localhost URL and auto-open it in the preview pane.
           let url: string | undefined;
-          for (let i = conv.messages.length - 1; i >= 0 && i >= conv.messages.length - 12; i--) {
+          for (let i = conv.messages.length - 1; i >= turnStartIndex; i--) {
             const mt = (conv.messages[i].content || '').match(
               /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]"'`]*)?/i,
             );
             if (mt) {
-              url = mt[0];
+              url = mt[0].replace(/[.,;:!?)\]]+$/, ''); // drop trailing sentence punctuation
               break;
             }
           }
@@ -1134,10 +1139,19 @@ export function useChat() {
   // Push the user message and start the turn. Locks runningIds before the async
   // expandMentions so the composer state updates immediately and there's no race.
   async function beginTurn(conv: Conversation, trimmed: string) {
+    const turn = getTurn(conv.id);
+    turn.stopped = false;
     runningIdsRef.current.add(conv.id);
     bumpNow();
     try {
       const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
+      // The user may have stopped or deleted the conversation during the async expand —
+      // don't append the message or start the turn in that case.
+      if (turn.stopped || !convsRef.current.some((c) => c.id === conv.id)) {
+        runningIdsRef.current.delete(conv.id);
+        bumpNow();
+        return;
+      }
       const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
       if (attachments.length) userMsg.attachments = attachments;
       const firstMessage = conv.messages.length === 0;
