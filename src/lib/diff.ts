@@ -1,4 +1,3 @@
-import { patchChanges } from './applyPatch';
 import type { Message } from './types';
 
 export type DiffRow = { t: 'ctx' | 'del' | 'add'; s: string };
@@ -47,7 +46,7 @@ export function extractChanges(messages: Message[]): FileChange[] {
   for (const m of messages) {
     if (m.role !== 'assistant' || !m.toolCalls) continue;
     for (const tc of m.toolCalls) {
-      if (tc.name !== 'apply_patch' && !EDIT_TOOLS.has(tc.name)) continue;
+      if (!EDIT_TOOLS.has(tc.name)) continue;
       const res = tc.id ? results.get(tc.id) : undefined;
       const ok = !!res && !res.isError;
       let a: any = {};
@@ -55,20 +54,6 @@ export function extractChanges(messages: Message[]): FileChange[] {
         a = JSON.parse(tc.arguments || '{}');
       } catch {
         /* ignore */
-      }
-      // apply_patch touches multiple files in one call — expand to one entry each.
-      if (tc.name === 'apply_patch') {
-        for (const ch of patchChanges(String(a.patch ?? a.input ?? ''))) {
-          out.push({
-            path: ch.path,
-            kind: ch.kind === 'add' ? 'write' : 'edit',
-            additions: ch.additions,
-            deletions: ch.deletions,
-            diff: ch.diff.slice(0, 400),
-            ok,
-          });
-        }
-        continue;
       }
       let diff: DiffRow[] = [];
       if (tc.name === 'edit_file') diff = lineDiff(String(a.old_string ?? ''), String(a.new_string ?? ''));

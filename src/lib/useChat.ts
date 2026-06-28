@@ -940,7 +940,7 @@ export function useChat() {
               }
             }
           }
-          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel' || tc.name === 'apply_patch')) {
+          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel')) {
             producedEdits = true;
           }
           conv.messages.push({

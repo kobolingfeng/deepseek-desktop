@@ -1,7 +1,6 @@
 // Built-in agent tools, executed against the native fs/shell/http APIs.
 import { fs, http, shell } from '../api';
 import { readOffice, writeExcel } from './office';
-import { applySections, parsePatch, patchChanges } from './applyPatch';
 import type { Settings, ToolCall, ToolPerm } from './types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
@@ -18,7 +17,6 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'update_plan', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'allow' },
   { name: 'write_file', defaultPerm: 'allow' },
-  { name: 'apply_patch', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
   { name: 'run_command', defaultPerm: 'ask' },
   { name: 'start_process', defaultPerm: 'ask' },
@@ -725,8 +723,6 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
-    case 'apply_patch':
-      return { title: 'Apply patch', detail: patchChanges(String(a.patch || '')).map((c) => c.path).join(', ') };
     case 'run_command':
       return { title: 'Run command', detail: a.command || '' };
     case 'start_process':
@@ -881,36 +877,6 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       const content = typeof args.content === 'string' ? args.content : '';
       await fs.writeTextFile(p, content);
       return `Wrote ${content.length} characters to ${p}`;
-    }
-    case 'apply_patch': {
-      const patch = String(args.patch ?? args.input ?? '');
-      if (!patch.trim()) throw new Error('patch is required');
-      let ops;
-      try {
-        ops = parsePatch(patch);
-      } catch (e: any) {
-        throw new Error('Invalid patch: ' + (e?.message || String(e)));
-      }
-      const done: string[] = [];
-      for (const op of ops) {
-        const abs = resolvePath(op.path, settings.workingDir);
-        if (!abs) throw new Error('invalid path in patch');
-        if (op.kind === 'add') {
-          await fs.writeTextFile(abs, op.lines.join('\n'));
-          done.push('A ' + op.path);
-        } else if (op.kind === 'delete') {
-          await fs.remove(abs);
-          done.push('D ' + op.path);
-        } else {
-          const cur = await fs.readTextFile(abs);
-          const next = applySections(cur, op.sections);
-          const dest = op.moveTo ? resolvePath(op.moveTo, settings.workingDir) : abs;
-          await fs.writeTextFile(dest, next);
-          if (op.moveTo && dest !== abs) await fs.remove(abs);
-          done.push((op.moveTo ? 'M ' : 'U ') + op.path + (op.moveTo ? ' → ' + op.moveTo : ''));
-        }
-      }
-      return 'Patch applied:\n' + done.join('\n');
     }
     case 'write_excel': {
       const p = resolvePath(args.path, settings.workingDir);

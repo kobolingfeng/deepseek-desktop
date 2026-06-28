@@ -32,7 +32,7 @@ function relPath(p: string): string {
 const SHOW_REASONING = false;
 // edit_file/write_file are folded into the single "Edited <file>" row below, so
 // their standalone tool rows are hidden.
-const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir', 'web_search', 'edit_file', 'write_file', 'apply_patch']);
+const HIDDEN_TOOL_ROWS = new Set(['read_url', 'list_dir', 'web_search', 'edit_file', 'write_file']);
 
 function clockTime(ts: number, lang: Lang): string {
   const d = new Date(ts);
