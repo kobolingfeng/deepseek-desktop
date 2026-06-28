@@ -1505,14 +1505,49 @@ textarea {
 }
 .settings-body {
   flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Left category nav (Codex-style); each section is its own sub-page. */
+.settings-nav {
+  flex-shrink: 0;
+  width: 190px;
+  padding: var(--space-4) var(--space-3);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-nav-item {
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.settings-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.settings-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+.settings-pane {
+  flex: 1;
   overflow-y: auto;
   padding: var(--space-6) var(--space-7) var(--space-9);
-  max-width: 720px;
-  width: 100%;
-  margin: 0 auto;
+  max-width: 760px;
 }
 .settings-section {
   margin-bottom: var(--space-7);
+}
+.settings-section[hidden] {
+  display: none;
 }
 .section-title {
   font-size: var(--text-xs);

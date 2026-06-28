@@ -44,6 +44,17 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
   const mcps = settings.mcpServers || [];
   const setMcps = (next: typeof mcps) => updateSettings({ mcpServers: next });
 
+  // Codex-style settings: a left category nav; each section is its own sub-page.
+  const [tab, setTab] = useState('general');
+  const CATS: { id: string; key: string }[] = [
+    { id: 'general', key: 'secApi' },
+    { id: 'permissions', key: 'secPermissions' },
+    { id: 'behavior', key: 'secBehavior' },
+    { id: 'commands', key: 'secCommands' },
+    { id: 'mcp', key: 'secMcp' },
+    { id: 'appearance', key: 'secAppearance' },
+  ];
+
   return (
     <div className="settings">
       <div className="settings-head">
@@ -54,8 +65,20 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
       </div>
 
       <div className="settings-body">
+        <nav className="settings-nav">
+          {CATS.map((c) => (
+            <button
+              key={c.id}
+              className={`settings-nav-item ${tab === c.id ? 'active' : ''}`}
+              onClick={() => setTab(c.id)}
+            >
+              {t(c.key)}
+            </button>
+          ))}
+        </nav>
+        <div className="settings-pane">
         {/* API */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'general'}>
           <div className="section-title">{t('secApi')}</div>
           <div className="section-card">
             <div className="field">
@@ -121,7 +144,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {/* Tool permissions */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'permissions'}>
           <div className="section-title">{t('secPermissions')}</div>
           <div className="section-card">
             {TOOL_LIST.map((tool) => {
@@ -148,7 +171,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {/* Behavior */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'behavior'}>
           <div className="section-title">{t('secBehavior')}</div>
           <div className="section-card">
             <div className="field">
@@ -208,7 +231,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {/* Custom commands */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'commands'}>
           <div className="section-title">{t('secCommands')}</div>
           <div className="section-card">
             <p className="hint">{t('secCommandsDesc')}</p>
@@ -242,7 +265,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {/* MCP servers */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'mcp'}>
           <div className="section-title">{t('secMcp')}</div>
           <div className="section-card">
             <p className="hint">{t('secMcpDesc')}</p>
@@ -289,7 +312,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {/* Appearance */}
-        <div className="settings-section">
+        <div className="settings-section" hidden={tab !== 'appearance'}>
           <div className="section-title">{t('secAppearance')}</div>
           <div className="section-card">
             <div className="field">
@@ -328,7 +351,8 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
           </div>
         </div>
 
-        <div className="about">{t('about')}</div>
+        {tab === 'appearance' && <div className="about">{t('about')}</div>}
+        </div>
       </div>
     </div>
   );
