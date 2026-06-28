@@ -21,6 +21,10 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'apply_patch', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
   { name: 'run_command', defaultPerm: 'ask' },
+  { name: 'start_process', defaultPerm: 'ask' },
+  { name: 'read_process', defaultPerm: 'allow' },
+  { name: 'write_process', defaultPerm: 'ask' },
+  { name: 'stop_process', defaultPerm: 'allow' },
 ];
 
 export function defaultToolPermissions(): Record<string, ToolPerm> {
@@ -42,8 +46,10 @@ export function isKnownTool(name: string): boolean {
 // which makes the composer show "Custom".
 // Codex-style presets: Read Only / Auto (default) / Full Access.
 export type ApprovalMode = 'read' | 'auto' | 'full';
-export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'run_command'];
-const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan'];
+export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'run_command', 'start_process', 'write_process'];
+const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
+// Commands that execute/inject shell work — confirmed even in Auto (we have no sandbox).
+const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process'];
 
 export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
   const out: Record<string, ToolPerm> = {};
@@ -52,8 +58,8 @@ export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> 
     // Read Only: only reading is free; edits, commands, and web access need approval.
     else if (mode === 'read') out[t.name] = READONLY_TOOLS.includes(t.name) ? 'allow' : 'ask';
     // Auto (default): read + edit files + web freely; shell commands still confirm —
-    // unlike Codex we have no command sandbox, so run_command stays gated for safety.
-    else out[t.name] = t.name === 'run_command' ? 'ask' : 'allow';
+    // unlike Codex we have no command sandbox, so command tools stay gated for safety.
+    else out[t.name] = CONFIRM_IN_AUTO.includes(t.name) ? 'ask' : 'allow';
   }
   return out;
 }
@@ -279,6 +285,68 @@ export const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'start_process',
+      description:
+        'Start a LONG-RUNNING or INTERACTIVE command (a dev server, file watcher, REPL, or anything that keeps running or prompts for input) in a background session via PowerShell. Returns a session_id and the initial output. Use read_process to get more output, write_process to send input to it, and stop_process to terminate it. For commands that finish on their own, use run_command instead. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The command line to start.' },
+          wait_ms: { type: 'number', description: 'How long to wait for initial output before returning (default 1500).' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_process',
+      description: 'Read any new output from a background process started with start_process. Optionally wait first for more output to arrive.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'number', description: 'The session id returned by start_process.' },
+          wait_ms: { type: 'number', description: 'Wait this long for more output before reading (default 0).' },
+        },
+        required: ['session_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_process',
+      description: "Send a line of input to a background process's stdin (answer a prompt, type into a REPL). Returns any new output. Requires user approval.",
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'number', description: 'The session id returned by start_process.' },
+          input: { type: 'string', description: 'The text to send.' },
+          newline: { type: 'boolean', description: 'Append a newline (Enter). Default true.' },
+          wait_ms: { type: 'number', description: 'Wait this long for output after sending (default 1000).' },
+        },
+        required: ['session_id', 'input'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'stop_process',
+      description: 'Terminate a background process (and its child processes) started with start_process.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'number', description: 'The session id returned by start_process.' },
+        },
+        required: ['session_id'],
+      },
+    },
+  },
 ];
 
 function isAbsolute(p: string): boolean {
@@ -317,6 +385,33 @@ function resolvePath(p: string, base: string): string {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max) + `\n… [truncated ${s.length - max} more characters]`;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Encode a script as base64 of its UTF-16LE bytes for `powershell -EncodedCommand`
+// (sidesteps all shell quoting). btoa over a Latin-1 byte string; handles BMP + astral.
+function psEncode(script: string): string {
+  let bin = '';
+  for (let i = 0; i < script.length; i++) {
+    const c = script.charCodeAt(i);
+    bin += String.fromCharCode(c & 0xff, (c >> 8) & 0xff);
+  }
+  return btoa(bin);
+}
+
+// PowerShell serializes its error stream to a redirected stderr/pipe as CLIXML; drop it.
+function stripClixml(s: string): string {
+  return s.replace(/#< CLIXML[\s\S]*?<\/Objs>/g, '').replace(/^#< CLIXML\s*$/gm, '');
+}
+
+// Format a session read for the model: output + a status line with the next-step hint.
+function formatSession(id: number, r: { output?: string; exited?: boolean; exitCode?: number }): string {
+  const out = stripClixml(r.output || '').replace(/\s+$/, '');
+  const status = r.exited
+    ? `[process exited, code ${r.exitCode ?? 0}; session ${id} closed]`
+    : `[process still running — session ${id}; use read_process for more output, write_process to send input, stop_process to terminate]`;
+  return truncate((out ? out + '\n' : '') + status, 30000);
 }
 
 function safeParse(argsJson: string): any {
@@ -607,6 +702,14 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Apply patch', detail: patchChanges(String(a.patch || '')).map((c) => c.path).join(', ') };
     case 'run_command':
       return { title: 'Run command', detail: a.command || '' };
+    case 'start_process':
+      return { title: 'Start process', detail: a.command || '' };
+    case 'read_process':
+      return { title: 'Read process', detail: a.session_id != null ? `session ${a.session_id}` : '' };
+    case 'write_process':
+      return { title: 'Send input', detail: a.input || '' };
+    case 'stop_process':
+      return { title: 'Stop process', detail: a.session_id != null ? `session ${a.session_id}` : '' };
     default:
       return { title: tc.name, detail: tc.arguments || '' };
   }
@@ -785,13 +888,7 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       // Run via PowerShell (like Codex). -EncodedCommand (base64 of UTF-16LE) sidesteps
       // all shell quoting; `& { } 2>&1` returns output+errors as plain text and
       // `exit $LASTEXITCODE` propagates native exit codes. cwd = the process CWD.
-      const script = `& {\n${cmd}\n} 2>&1\nexit $LASTEXITCODE`;
-      let bin = '';
-      for (let i = 0; i < script.length; i++) {
-        const c = script.charCodeAt(i);
-        bin += String.fromCharCode(c & 0xff, (c >> 8) & 0xff);
-      }
-      const b64 = btoa(bin);
+      const b64 = psEncode(`& {\n${cmd}\n} 2>&1\nexit $LASTEXITCODE`);
       const r = await shell.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], ctx.cancelId, wd || undefined);
       let out = (r.stdout || '').trim();
       // PowerShell serializes its error stream to stderr as CLIXML noise — drop it
@@ -801,6 +898,43 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       out = out.trim();
       out += `${out ? '\n' : ''}[exit code ${r.exitCode}]`;
       return truncate(out, 30000);
+    }
+    case 'start_process': {
+      const cmd = String(args.command || '').trim();
+      if (!cmd) throw new Error('command is required');
+      const wd = (settings.workingDir || '').replace(/"/g, '').trim();
+      // Start the command in a persistent PowerShell session (stdout+stderr merged).
+      const { sessionId } = await shell.session.start('powershell.exe', {
+        args: ['-NoProfile', '-NoLogo', '-EncodedCommand', psEncode(cmd)],
+        cwd: wd || undefined,
+      });
+      await sleep(Math.min(Math.max(Number(args.wait_ms) || 1500, 0), 15000));
+      const r = await shell.session.read(sessionId);
+      return formatSession(sessionId, r);
+    }
+    case 'read_process': {
+      const id = Number(args.session_id);
+      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      if (args.wait_ms) await sleep(Math.min(Math.max(Number(args.wait_ms), 0), 15000));
+      const r = await shell.session.read(id);
+      if (!r.ok) throw new Error(r.error || 'session not found (it may have been stopped)');
+      return formatSession(id, r);
+    }
+    case 'write_process': {
+      const id = Number(args.session_id);
+      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      const input = String(args.input ?? '');
+      const w = await shell.session.write(id, input, args.newline !== false);
+      if (!w.ok) throw new Error(w.exited ? 'the process has already exited' : 'session not found');
+      await sleep(Math.min(Math.max(Number(args.wait_ms) || 1000, 0), 15000));
+      const r = await shell.session.read(id);
+      return formatSession(id, r);
+    }
+    case 'stop_process': {
+      const id = Number(args.session_id);
+      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      const r = await shell.session.kill(id);
+      return r.ok ? `Stopped process session ${id}.` : `Session ${id} was not running.`;
     }
     default:
       throw new Error('Unknown tool: ' + tc.name);

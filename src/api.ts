@@ -161,6 +161,21 @@ export const shell = {
     },
     /** Kill an in-flight run() (and its child process tree) by its cancelId. */
     runCancel: (id: number) => invoke<{ ok: boolean }>('shell.runCancel', { id }),
+    // ── Persistent interactive sessions (long-running / interactive commands) ──
+    session: {
+        start: (program: string, opts?: { args?: string[]; cwd?: string; rawArgs?: string }) =>
+            invoke<{ sessionId: number; pid: number }>('shell.session.start', {
+                program,
+                args: opts?.args ?? [],
+                cwd: opts?.cwd ?? '',
+                rawArgs: opts?.rawArgs ?? '',
+            }),
+        write: (id: number, input: string, newline = true) =>
+            invoke<{ ok: boolean; exited?: boolean }>('shell.session.write', { id, input, newline }),
+        read: (id: number) =>
+            invoke<{ ok: boolean; output?: string; exited?: boolean; exitCode?: number; error?: string }>('shell.session.read', { id }),
+        kill: (id: number) => invoke<{ ok: boolean; error?: string }>('shell.session.kill', { id }),
+    },
 };
 
 // ── App ───────────────────────────────────────

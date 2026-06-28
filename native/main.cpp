@@ -2538,6 +2538,179 @@ static void reg_extras() {
         }
         return json{{"ok", true}};
     });
+
+    // ---- persistent interactive shell sessions (start/write/read/kill) ----
+    // For long-running or interactive commands: the process stays alive with a persistent
+    // stdin and a merged stdout+stderr stream a reader thread accumulates into a buffer.
+    struct Session {
+        DWORD pid{0};
+        HANDLE hStdinW{nullptr};
+        std::mutex stdinMutex;     // serialize stdin writes vs. the close on exit
+        bool stdinOpen{true};
+        std::string buf;
+        std::mutex bufMutex;
+        std::atomic<bool> exited{false};
+        std::atomic<DWORD> exitCode{0};
+    };
+    static std::mutex g_sessMutex;
+    static std::unordered_map<int, std::shared_ptr<Session>> g_sessions;
+    static std::atomic<int> g_nextSessionId{1};
+
+    ipc_on("shell.session.start", [](const json& a) -> json {
+        auto program = a.value("program", std::string{});
+        if (program.empty()) throw std::runtime_error("program is required");
+        std::wstring cwdW = U2W(a.value("cwd", std::string{}));
+        std::wstring cmdLine = quote_windows_arg(U2W(program));
+        std::string rawArgs = a.value("rawArgs", std::string{});
+        if (!rawArgs.empty()) {
+            cmdLine += L" ";
+            cmdLine += U2W(rawArgs);
+        } else if (a.contains("args") && a["args"].is_array()) {
+            for (auto& arg : a["args"]) {
+                if (!arg.is_string()) throw std::runtime_error("args must be strings");
+                cmdLine += L" ";
+                cmdLine += quote_windows_arg(U2W(arg.get<std::string>()));
+            }
+        }
+
+        SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+        HANDLE inR = nullptr, inW = nullptr, outR = nullptr, outW = nullptr;
+        if (!CreatePipe(&inR, &inW, &sa, 0) || !CreatePipe(&outR, &outW, &sa, 0)) {
+            if (inR) CloseHandle(inR);
+            if (inW) CloseHandle(inW);
+            if (outR) CloseHandle(outR);
+            if (outW) CloseHandle(outW);
+            throw std::runtime_error("failed to create pipes");
+        }
+        SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
+
+        STARTUPINFOW si{sizeof(si)};
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = inR;
+        si.hStdOutput = outW;
+        si.hStdError = outW; // merge stderr into stdout (terminal-like)
+        PROCESS_INFORMATION pi{};
+        std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
+        cmd.push_back(0);
+        BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+            CREATE_NO_WINDOW, nullptr, (cwdW.empty() ? nullptr : cwdW.c_str()), &si, &pi);
+        CloseHandle(inR);  // child's stdin-read end
+        CloseHandle(outW); // child's stdout-write end
+        if (!ok) {
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("failed to start process");
+        }
+        CloseHandle(pi.hThread); // never used
+
+        auto s = std::make_shared<Session>();
+        s->pid = pi.dwProcessId;
+        s->hStdinW = inW;
+        int id = g_nextSessionId.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> lk(g_sessMutex);
+            g_sessions[id] = s;
+        }
+
+        // Reader thread owns hStdoutR + the process handle: fills the buffer, and on EOF
+        // records the exit code and closes stdin.
+        HANDLE hProc = pi.hProcess;
+        std::thread([s, outR, hProc]() {
+            char b[4096];
+            DWORD rd;
+            while (ReadFile(outR, b, sizeof(b), &rd, nullptr) && rd > 0) {
+                std::lock_guard<std::mutex> lk(s->bufMutex);
+                s->buf.append(b, rd);
+                // cap memory for chatty processes: keep roughly the last 512 KB
+                if (s->buf.size() > (1u << 20)) s->buf.erase(0, s->buf.size() - (1u << 19));
+            }
+            CloseHandle(outR);
+            WaitForSingleObject(hProc, INFINITE);
+            DWORD ec = 0;
+            GetExitCodeProcess(hProc, &ec);
+            s->exitCode = ec;
+            s->exited = true;
+            CloseHandle(hProc);
+            std::lock_guard<std::mutex> lk(s->stdinMutex);
+            if (s->stdinOpen) {
+                CloseHandle(s->hStdinW);
+                s->stdinOpen = false;
+            }
+        }).detach();
+
+        return json{{"sessionId", id}, {"pid", (int)s->pid}};
+    });
+
+    // Write to a session's stdin (a trailing CRLF is added unless newline:false).
+    ipc_on("shell.session.write", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::string input = a.value("input", std::string{});
+        bool newline = a.value("newline", true);
+        std::shared_ptr<Session> s;
+        {
+            std::lock_guard<std::mutex> lk(g_sessMutex);
+            auto it = g_sessions.find(id);
+            if (it != g_sessions.end()) s = it->second;
+        }
+        if (!s) return json{{"ok", false}, {"error", "session not found"}};
+        if (newline) input += "\r\n";
+        std::lock_guard<std::mutex> lk(s->stdinMutex);
+        if (!s->stdinOpen) return json{{"ok", false}, {"exited", true}};
+        DWORD wr = 0;
+        BOOL w = WriteFile(s->hStdinW, input.data(), (DWORD)input.size(), &wr, nullptr);
+        return json{{"ok", (bool)w}};
+    });
+
+    // Drain a session's accumulated output and report whether it has exited.
+    ipc_on("shell.session.read", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::shared_ptr<Session> s;
+        {
+            std::lock_guard<std::mutex> lk(g_sessMutex);
+            auto it = g_sessions.find(id);
+            if (it != g_sessions.end()) s = it->second;
+        }
+        if (!s) return json{{"ok", false}, {"error", "session not found"}};
+        std::string out;
+        {
+            std::lock_guard<std::mutex> lk(s->bufMutex);
+            out.swap(s->buf);
+        }
+        bool exited = s->exited.load();
+        json r{{"ok", true}, {"output", to_utf8_console(out)}, {"exited", exited}};
+        if (exited) r["exitCode"] = (int)s->exitCode.load();
+        if (exited && out.empty()) { // reap a finished, fully-drained session
+            std::lock_guard<std::mutex> lk(g_sessMutex);
+            g_sessions.erase(id);
+        }
+        return r;
+    });
+
+    // Kill a session's process tree and drop it.
+    ipc_on("shell.session.kill", [](const json& a) -> json {
+        int id = a.value("id", -1);
+        std::shared_ptr<Session> s;
+        {
+            std::lock_guard<std::mutex> lk(g_sessMutex);
+            auto it = g_sessions.find(id);
+            if (it != g_sessions.end()) {
+                s = it->second;
+                g_sessions.erase(it);
+            }
+        }
+        if (!s) return json{{"ok", false}, {"error", "session not found"}};
+        {
+            std::lock_guard<std::mutex> lk(s->stdinMutex);
+            if (s->stdinOpen) {
+                CloseHandle(s->hStdinW);
+                s->stdinOpen = false;
+            }
+        }
+        DWORD pid = s->pid;
+        if (pid) killTree(pid);
+        return json{{"ok", true}};
+    });
 }
 
 // ================================================================
