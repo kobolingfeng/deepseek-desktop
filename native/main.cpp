@@ -2359,7 +2359,7 @@ static void reg_extras() {
     });
 
     // ---- cancellable shell.run process registry ----
-    struct ProcEntry { DWORD pid = 0; std::atomic<bool> cancel{false}; };
+    struct ProcEntry { std::atomic<DWORD> pid{0}; std::atomic<bool> cancel{false}; };
     static std::mutex g_procMutex;
     static std::unordered_map<int, std::shared_ptr<ProcEntry>> g_procs; // cancelId -> entry
 
@@ -2374,6 +2374,25 @@ static void reg_extras() {
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
         }
+    };
+
+    // cmd.exe pipe output is in the OEM/console code page (e.g. GBK 936 on zh-CN),
+    // not UTF-8. The JSON serializer requires valid UTF-8, so convert — otherwise
+    // non-ASCII output (Chinese filenames/errors) would be dropped or crash dump().
+    static auto to_utf8_console = [](const std::string& s) -> std::string {
+        if (s.empty()) return s;
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.data(), (int)s.size(), nullptr, 0) > 0)
+            return s; // already valid UTF-8
+        UINT cp = GetOEMCP();
+        int wlen = MultiByteToWideChar(cp, 0, s.data(), (int)s.size(), nullptr, 0);
+        if (wlen <= 0) return s;
+        std::wstring w(wlen, 0);
+        MultiByteToWideChar(cp, 0, s.data(), (int)s.size(), &w[0], wlen);
+        int ulen = WideCharToMultiByte(CP_UTF8, 0, w.data(), wlen, nullptr, 0, nullptr, nullptr);
+        if (ulen <= 0) return s;
+        std::string u(ulen, 0);
+        WideCharToMultiByte(CP_UTF8, 0, w.data(), wlen, &u[0], ulen, nullptr, nullptr);
+        return u;
     };
 
     // Shell.run with stdout/stderr capture. Runs on a worker thread (so it never
@@ -2423,9 +2442,16 @@ static void reg_extras() {
             };
 
             SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
-            HANDLE hOutR, hOutW, hErrR, hErrW;
-            CreatePipe(&hOutR, &hOutW, &sa, 0);
-            CreatePipe(&hErrR, &hErrW, &sa, 0);
+            HANDLE hOutR = nullptr, hOutW = nullptr, hErrR = nullptr, hErrW = nullptr;
+            if (!CreatePipe(&hOutR, &hOutW, &sa, 0) || !CreatePipe(&hErrR, &hErrW, &sa, 0)) {
+                if (hOutR) CloseHandle(hOutR);
+                if (hOutW) CloseHandle(hOutW);
+                if (hErrR) CloseHandle(hErrR);
+                if (hErrW) CloseHandle(hErrW);
+                unregister();
+                post(-1, "", "Failed to create pipes");
+                return;
+            }
             SetHandleInformation(hOutR, HANDLE_FLAG_INHERIT, 0);
             SetHandleInformation(hErrR, HANDLE_FLAG_INHERIT, 0);
 
@@ -2490,7 +2516,7 @@ static void reg_extras() {
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
 
-            post((int)exitCode, stdout_, stderr_);
+            post((int)exitCode, to_utf8_console(stdout_), to_utf8_console(stderr_));
         }).detach();
 
         return json{{"ok", true}};
@@ -2507,7 +2533,7 @@ static void reg_extras() {
         }
         if (e) {
             e->cancel = true;          // if the process isn't spawned yet, the worker kills it post-spawn
-            DWORD pid = e->pid;
+            DWORD pid = e->pid.load();
             if (pid) killTree(pid);
         }
         return json{{"ok", true}};
