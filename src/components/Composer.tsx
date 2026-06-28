@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MessageSquare, ListTodo, Target, type LucideIcon } from 'lucide-react';
-import { dialog, win } from '../api';
+import { clipboard, dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
 import { CONTEXT_LABEL } from '../lib/deepseek';
 import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
@@ -147,6 +147,21 @@ export function Composer({
     { cmd: 'compact', label: t('cmdCompact'), run: () => controller.compactActive() },
     { cmd: 'diff', label: t('cmdDiff'), run: () => controller.runGitDiff() },
     { cmd: 'status', label: t('cmdStatus'), run: () => controller.showStatus() },
+    { cmd: 'new', label: t('cmdNew'), run: () => controller.newConversation() },
+    { cmd: 'review', label: t('cmdReview'), run: () => controller.sendMessage(t('reviewPrompt')) },
+    {
+      cmd: 'copy',
+      label: t('cmdCopy'),
+      run: () => {
+        const msgs = controller.activeConversation?.messages || [];
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'assistant' && msgs[i].content) {
+            clipboard.writeText(msgs[i].content).catch(() => {});
+            break;
+          }
+        }
+      },
+    },
     { cmd: 'init', label: t('cmdInit'), run: () => controller.sendMessage(t('initPrompt')) },
     {
       cmd: 'model',

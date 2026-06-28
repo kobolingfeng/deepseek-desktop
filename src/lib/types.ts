@@ -150,6 +150,7 @@ export const DEFAULT_SETTINGS: Settings = {
     update_plan: 'allow',
     edit_file: 'allow',
     write_file: 'allow',
+    apply_patch: 'allow',
     write_excel: 'allow',
     run_command: 'ask',
   },

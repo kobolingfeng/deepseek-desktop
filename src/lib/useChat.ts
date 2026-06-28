@@ -551,8 +551,22 @@ export function useChat() {
     try {
       const safeCwd = cwd.replace(/"/g, '').trim();
       const r = await shell.run('cmd.exe', ['/c', 'git --no-pager diff'], undefined, safeCwd);
-      const out = (r.stdout || '').trim();
-      if (out) push('```diff\n' + out.slice(0, 20000) + '\n```');
+      const u = await shell.run('cmd.exe', ['/c', 'git ls-files --others --exclude-standard'], undefined, safeCwd);
+      const diff = (r.stdout || '').trim();
+      const untracked = (u.stdout || '').trim();
+      let out = '';
+      if (diff) out += '```diff\n' + diff.slice(0, 20000) + '\n```';
+      if (untracked) {
+        const zh = settingsRef.current.language === 'zh';
+        out +=
+          (out ? '\n\n' : '') +
+          (zh ? '未跟踪的新文件:\n' : 'Untracked files:\n') +
+          untracked
+            .split('\n')
+            .map((f) => '• ' + f)
+            .join('\n');
+      }
+      if (out) push(out);
       else push((r.stderr || '').trim() || 'No changes (clean working tree, or not a git repository).');
     } catch (e: any) {
       push('git diff failed: ' + (e?.message || String(e)));
@@ -914,7 +928,7 @@ export function useChat() {
               }
             }
           }
-          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel')) {
+          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel' || tc.name === 'apply_patch')) {
             producedEdits = true;
           }
           conv.messages.push({
