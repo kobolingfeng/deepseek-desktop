@@ -215,11 +215,25 @@ export async function officePreviewHtml(p: string): Promise<string> {
   }
   const text = await readOffice(p);
   if (ext === 'pptx') {
-    // readPptx output is "# Slide N\n...": render each slide as a card.
+    // readPptx output is "# Slide N\n<lines>": render each slide as a 16:9 card with the
+    // first line as the title and the rest as bullets (mirrors how we generate decks).
     const slides = text.split(/\n(?=# Slide )/).filter((s) => s.trim());
-    return slides
-      .map((s) => `<div class="o-slide"><pre>${escHtml(s.replace(/^# Slide \d+\n?/, ''))}</pre></div>`)
-      .join('\n');
+    const cards = slides.map((s, i) => {
+      const lines = s
+        .replace(/^# Slide \d+\n?/, '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const title = lines[0] || '';
+      const rest = lines.slice(1);
+      return (
+        `<div class="o-slide"><span class="o-slide-no">${i + 1}</span>` +
+        (title ? `<div class="o-slide-title">${escHtml(title)}</div>` : '') +
+        (rest.length ? `<ul class="o-slide-body">${rest.map((l) => `<li>${escHtml(l)}</li>`).join('')}</ul>` : '') +
+        `</div>`
+      );
+    });
+    return `<div class="o-deck">${cards.join('')}</div>`;
   }
   return '<pre class="o-text">' + escHtml(text) + '</pre>';
 }

@@ -140,14 +140,17 @@ function EditedFileRow({ change }: { change: FileChange }) {
   const name = change.path.split(/[\\/]/).pop() || change.path;
   const hasDiff = change.diff.length > 0;
 
+  // Prefer the absolute path the tool actually wrote to (survives relative paths and
+  // per-conversation working dirs); fall back to resolving against the global dir.
+  const fileAbs = change.abs || resolveAbs(change.path);
   const openFile = (e: React.MouseEvent) => {
     e.stopPropagation();
-    shell.open(resolveAbs(change.path)).catch(() => {});
+    shell.open(fileAbs).catch(() => {});
   };
   const fileMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const abs = resolveAbs(change.path);
+    const abs = fileAbs;
     const parent = abs.replace(/[\\/][^\\/]*$/, '') || abs;
     showContextMenu(e.clientX, e.clientY, [
       { label: t('ctxOpen'), onClick: () => shell.open(abs).catch(() => {}) },
@@ -163,12 +166,14 @@ function EditedFileRow({ change }: { change: FileChange }) {
     <div className={`edited-file-row ${change.ok ? '' : 'error'}`}>
       <button className="edited-file" onClick={() => hasDiff && setOpen((o) => !o)}>
         <span className="edited-file-verb">{t('editedVerb')}</span>
-        <span className="edited-file-name" title={change.path} onClick={openFile} onContextMenu={fileMenu}>
+        <span className="edited-file-name" title={fileAbs} onClick={openFile} onContextMenu={fileMenu}>
           {name}
         </span>
-        <span className="edited-file-stat">
-          <span className="diff-add">+{change.additions}</span> <span className="diff-del">-{change.deletions}</span>
-        </span>
+        {(change.additions > 0 || change.deletions > 0) && (
+          <span className="edited-file-stat">
+            <span className="diff-add">+{change.additions}</span> <span className="diff-del">-{change.deletions}</span>
+          </span>
+        )}
         {hasDiff && <span className="edited-file-chev">{open ? '▾' : '›'}</span>}
       </button>
       {open && hasDiff && (

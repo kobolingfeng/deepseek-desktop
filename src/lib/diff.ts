@@ -29,6 +29,8 @@ export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
 
 export interface FileChange {
   path: string;
+  /** Absolute path parsed from the tool result (authoritative for opening the file). */
+  abs?: string;
   kind: 'edit' | 'write' | 'excel' | 'doc';
   additions: number;
   deletions: number;
@@ -37,6 +39,16 @@ export interface FileChange {
 }
 
 const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel', 'write_word', 'write_pptx']);
+
+/** Pull the resolved absolute path out of a write/edit tool result (executors return
+ *  "… to <abs>" or "Edited <abs> (…)") so the UI can open the real file regardless of
+ *  what relative path the model passed. */
+function absFromResult(content: string): string | undefined {
+  if (!content) return undefined;
+  const m = content.match(/ to (.+?)\s*$/) || content.match(/^Edited (.+?) \(/);
+  const p = m?.[1]?.trim();
+  return p && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\')) ? p : undefined;
+}
 
 /** Aggregate the file-mutating tool calls in a conversation into a change list. */
 export function extractChanges(messages: Message[]): FileChange[] {
@@ -60,6 +72,7 @@ export function extractChanges(messages: Message[]): FileChange[] {
       else if (tc.name === 'write_file') diff = lineDiff('', String(a.content ?? ''));
       out.push({
         path: a.path || '(unknown)',
+        abs: ok && res ? absFromResult(res.content) : undefined,
         kind:
           tc.name === 'edit_file'
             ? 'edit'

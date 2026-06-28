@@ -164,13 +164,17 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     officeHtml == null
       ? ''
       : `<!doctype html><html><head><meta charset="utf-8"><style>
-  body{font:13px/1.55 system-ui,Segoe UI,sans-serif;color:#1a1a1a;background:#fff;margin:0;padding:16px;}
-  table{border-collapse:collapse;margin:0 0 18px;font-size:12px;}
+  body{font:13px/1.55 system-ui,Segoe UI,sans-serif;color:#1a1a1a;background:#f3f3f4;margin:0;padding:16px;}
+  table{border-collapse:collapse;margin:0 0 18px;font-size:12px;background:#fff;}
   td,th{border:1px solid #d4d4d4;padding:3px 8px;text-align:left;}
   .o-sheet{margin:16px 0 6px;font-size:13px;font-weight:600;color:#333;}
   .o-text{white-space:pre-wrap;font:13px/1.6 system-ui;margin:0;}
-  .o-slide{border:1px solid #e2e2e2;border-radius:8px;padding:14px 18px;margin:0 0 12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
-  .o-slide pre{white-space:pre-wrap;margin:0;font:13px/1.55 system-ui;}
+  .o-deck{display:flex;flex-direction:column;gap:16px;}
+  .o-slide{aspect-ratio:16/9;border:1px solid #d8d8d8;border-radius:10px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.10);padding:5.5% 6.5%;position:relative;overflow:hidden;display:flex;flex-direction:column;}
+  .o-slide-no{position:absolute;top:9px;right:13px;font-size:11px;color:#b3b3b3;}
+  .o-slide-title{font-size:clamp(17px,3.4vw,30px);font-weight:700;color:#1a1a1a;line-height:1.2;margin-bottom:.55em;}
+  .o-slide-body{margin:0;padding-left:1.15em;font-size:clamp(12px,2vw,18px);line-height:1.55;color:#333;}
+  .o-slide-body li{margin:.28em 0;}
 </style></head><body>${officeHtml}</body></html>`;
 
   return (
