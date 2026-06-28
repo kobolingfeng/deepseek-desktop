@@ -22,13 +22,29 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
   useEffect(() => {
     if (tab === 'terminal') setTermMounted(true);
   }, [tab]);
+  // Re-render on window resize so the width cap below tracks the current window size.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const onR = () => setTick((n) => n + 1);
+    window.addEventListener('resize', onR);
+    return () => window.removeEventListener('resize', onR);
+  }, []);
+
+  // Cap the panel so the chat pane always keeps at least MIN_CHAT px — never let it cover the
+  // content. `panelW` is the effective width: it also clamps a persisted value that's now too
+  // wide for the current window / sidebar width.
+  const MIN_PANEL = 320;
+  const MIN_CHAT = 360;
+  const maxPanel = Math.max(MIN_PANEL, window.innerWidth - controller.sidebarWidth - MIN_CHAT);
+  const panelW = Math.min(controller.panelWidth, maxPanel);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = controller.panelWidth;
+    const startW = panelW;
     setResizing(true);
-    const onMove = (ev: MouseEvent) => controller.setPanelWidth(Math.min(900, Math.max(320, startW + (startX - ev.clientX))));
+    const onMove = (ev: MouseEvent) =>
+      controller.setPanelWidth(Math.min(maxPanel, Math.max(MIN_PANEL, startW + (startX - ev.clientX))));
     const onUp = () => {
       setResizing(false);
       window.removeEventListener('mousemove', onMove);
@@ -44,10 +60,10 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
   return (
     <aside
       className={`side-panel ${open ? 'open' : 'closed'} ${resizing ? 'resizing' : ''}`}
-      style={{ width: open ? controller.panelWidth : 0 }}
+      style={{ width: open ? panelW : 0 }}
       aria-hidden={!open}
     >
-      <div className="side-panel-inner" style={{ width: controller.panelWidth }}>
+      <div className="side-panel-inner" style={{ width: panelW }}>
         <div className="side-resize" onMouseDown={startResize} />
         <div className="side-head">
           <div className="side-tabs">
