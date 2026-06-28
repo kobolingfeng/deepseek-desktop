@@ -198,15 +198,21 @@ export function Sidebar({
 
     // Codex-style auto-grouping: conversations WITH a working directory become "Projects"
     // (grouped by that directory); conversations WITHOUT one are flat "Chats".
-    const byCwd = new Map<string, Conversation[]>();
+    // Group by a normalized key (case-insensitive, no trailing slash) so the same folder
+    // doesn't split into separate rows; keep the first conv's path as the display path.
+    const byCwd = new Map<string, { cwd: string; items: Conversation[] }>();
     for (const c of rest) {
       if (!c.cwd) continue;
-      const arr = byCwd.get(c.cwd) ?? [];
-      arr.push(c);
-      byCwd.set(c.cwd, arr);
+      const key = c.cwd.replace(/[\\/]+$/, '').toLowerCase();
+      let g = byCwd.get(key);
+      if (!g) {
+        g = { cwd: c.cwd, items: [] };
+        byCwd.set(key, g);
+      }
+      g.items.push(c);
     }
-    const projects = [...byCwd.entries()]
-      .map(([cwd, items]) => ({ cwd, name: projName(cwd), items: items.sort(byRecent) }))
+    const projects = [...byCwd.values()]
+      .map(({ cwd, items }) => ({ cwd, name: projName(cwd), items: items.sort(byRecent) }))
       .sort((a, b) => (b.items[0]?.updatedAt || 0) - (a.items[0]?.updatedAt || 0));
     if (projects.length) out.push({ kind: 'projects', key: 'projects', projects });
 
@@ -367,6 +373,7 @@ export function Sidebar({
               return;
             }
             computeMenuPos(e.currentTarget as HTMLElement);
+            setProjMenuCwd(null); // only one menu open at a time
             setMenuId(c.id);
           }}
         >
@@ -548,6 +555,7 @@ export function Sidebar({
                             return;
                           }
                           computeMenuPos(e.currentTarget as HTMLElement);
+                          setMenuId(null); // only one menu open at a time
                           setProjMenuCwd(p.cwd);
                         }}
                       >

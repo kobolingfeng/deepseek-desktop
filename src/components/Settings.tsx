@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { dialog } from '../api';
 import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
-import { TOOL_LIST } from '../lib/tools';
+import { TOOL_LIST, deriveApprovalMode } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 
 const PERMS: ToolPerm[] = ['allow', 'ask', 'off'];
@@ -36,8 +36,13 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
     { id: 'dark', key: 'themeDark' },
   ];
 
-  const setPerm = (tool: string, perm: ToolPerm) =>
-    updateSettings({ toolPermissions: { ...(settings.toolPermissions || {}), [tool]: perm } });
+  const setPerm = (tool: string, perm: ToolPerm) => {
+    const next = { ...(settings.toolPermissions || {}), [tool]: perm };
+    // Keep the composer chip in sync: if the edited map matches a preset, adopt that mode
+    // (we never surface "custom"), otherwise leave approvalMode as-is.
+    const mode = deriveApprovalMode(next);
+    updateSettings({ toolPermissions: next, ...(mode !== 'custom' ? { approvalMode: mode } : {}) });
+  };
 
   const cmds = settings.customCommands || [];
   const setCmds = (next: typeof cmds) => updateSettings({ customCommands: next });

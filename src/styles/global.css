@@ -176,6 +176,10 @@ textarea {
   gap: 2px;
   app-region: no-drag;
   -webkit-app-region: no-drag;
+  /* Above the resize layer (z-index 100) so the min/max/close buttons stay clickable
+     where the top-right resize corner would otherwise cover them. */
+  position: relative;
+  z-index: 101;
 }
 .win-btn {
   width: 42px;
@@ -536,6 +540,8 @@ textarea {
   top: calc(100% - 4px);
   right: 6px;
   min-width: 150px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);

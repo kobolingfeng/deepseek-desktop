@@ -41,8 +41,13 @@ export function App() {
   // resolved background to the native window so the DWM border/caption match the UI
   // (otherwise the window edge keeps the startup colour and looks wrong after theme change).
   useEffect(() => {
-    const syncNativeBg = () => {
-      requestAnimationFrame(() => {
+    let cancelled = false;
+    let raf = 0;
+    const apply = (dark: boolean) => {
+      if (cancelled) return; // a newer themePref effect superseded this one
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
         const bg = getComputedStyle(document.body).backgroundColor;
         const m = bg.match(/\d+/g);
         if (m && m.length >= 3) {
@@ -51,14 +56,17 @@ export function App() {
         }
       });
     };
-    const apply = (dark: boolean) => {
-      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-      syncNativeBg();
-    };
-    if (themePref === 'dark') return apply(true), undefined;
-    if (themePref === 'light') return apply(false), undefined;
+    if (themePref === 'dark') {
+      apply(true);
+      return () => { cancelled = true; cancelAnimationFrame(raf); };
+    }
+    if (themePref === 'light') {
+      apply(false);
+      return () => { cancelled = true; cancelAnimationFrame(raf); };
+    }
     os.theme().then((t) => apply(t.dark)).catch(() => apply(true));
-    return os.onThemeChanged((t) => apply(t.dark));
+    const off = os.onThemeChanged((t) => apply(t.dark));
+    return () => { cancelled = true; cancelAnimationFrame(raf); off?.(); };
   }, [themePref]);
 
   // First run: pick UI language from the system locale.
