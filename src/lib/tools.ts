@@ -32,12 +32,12 @@ export function defaultToolPermissions(): Record<string, ToolPerm> {
 }
 
 export function toolPerm(name: string, settings: Settings): ToolPerm {
-  return (
-    settings.toolPermissions?.[name] ??
-    approvalModePerms(settings.approvalMode || 'read')[name] ??
-    TOOL_LIST.find((t) => t.name === name)?.defaultPerm ??
-    'ask'
-  );
+  // Only honor a VALID persisted value — a malformed/old value must not be treated as
+  // 'allow' (which would silently bypass the approval gate). Otherwise fall back to the
+  // active approval-mode preset, then the tool's default.
+  const v = settings.toolPermissions?.[name];
+  if (v === 'allow' || v === 'ask' || v === 'off') return v;
+  return approvalModePerms(settings.approvalMode || 'read')[name] ?? TOOL_LIST.find((t) => t.name === name)?.defaultPerm ?? 'ask';
 }
 
 export function isKnownTool(name: string): boolean {
@@ -840,8 +840,17 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       );
       const lines: string[] = [];
       let scanned = 0;
+      const deadline = Date.now() + 4000; // hard wall against a pathological (ReDoS) pattern
+      let timedOut = false;
       for (const f of files) {
         if (lines.length >= 100 || scanned >= 800) break;
+        if (Date.now() > deadline) {
+          timedOut = true;
+          break;
+        }
+        // Skip oversized files BEFORE reading them into memory.
+        const st = await fs.stat(f).catch(() => null);
+        if (st && st.size > 1_000_000) continue;
         let content: string;
         try {
           content = await fs.readTextFile(f);
@@ -852,14 +861,20 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
         if (content.length > 1_000_000) continue;
         const fl = content.split('\n');
         for (let i = 0; i < fl.length && lines.length < 100; i++) {
+          if (i % 500 === 0 && Date.now() > deadline) {
+            timedOut = true;
+            break;
+          }
           // Skip very long lines before re.test: a pathological pattern + a long line is
           // the classic catastrophic-backtracking (ReDoS) freeze on the single-threaded UI.
           if (fl[i].length <= 2000 && re.test(fl[i]))
             lines.push(`${toRel(f.replace(/\\/g, '/'), rootNorm)}:${i + 1}: ${fl[i].trim().slice(0, 200)}`);
         }
+        if (timedOut) break;
       }
-      if (!lines.length) return `No matches for /${q}/ under ${root}`;
-      return `${lines.length} match(es) (scanned ${scanned} files):\n` + lines.join('\n');
+      const note = timedOut ? ' (search stopped early — refine the query or use a simpler pattern)' : '';
+      if (!lines.length) return `No matches for /${q}/ under ${root}${note}`;
+      return `${lines.length} match(es) (scanned ${scanned} files)${note}:\n` + lines.join('\n');
     }
     case 'edit_file': {
       const p = resolvePath(args.path, settings.workingDir);
@@ -939,7 +954,7 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     }
     case 'read_process': {
       const id = Number(args.session_id);
-      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("a valid session_id is required");
       if (args.wait_ms) await sleep(Math.min(Math.max(Number(args.wait_ms), 0), 15000));
       const r = await shell.session.read(id);
       if (!r.ok) throw new Error(r.error || 'session not found (it may have been stopped)');
@@ -947,7 +962,7 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     }
     case 'write_process': {
       const id = Number(args.session_id);
-      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("a valid session_id is required");
       const input = String(args.input ?? '');
       const w = await shell.session.write(id, input, args.newline !== false);
       if (!w.ok) throw new Error(w.exited ? 'the process has already exited' : 'session not found');
@@ -957,7 +972,7 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     }
     case 'stop_process': {
       const id = Number(args.session_id);
-      if (!Number.isFinite(id)) throw new Error('session_id is required');
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("a valid session_id is required");
       const r = await shell.session.kill(id);
       return r.ok ? `Stopped process session ${id}.` : `Session ${id} was not running.`;
     }

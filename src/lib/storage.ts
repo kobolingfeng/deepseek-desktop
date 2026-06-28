@@ -1,7 +1,7 @@
 // Persistence via WebView2's localStorage (survives in the app's user data dir).
 import type { Conversation, Group, Profile, Settings } from './types';
 import { DEFAULT_SETTINGS } from './types';
-import { deriveApprovalMode } from './tools';
+import { deriveApprovalMode, defaultToolPermissions } from './tools';
 
 const CONV_KEY = 'deepseek.conversations';
 const SETTINGS_KEY = 'deepseek.settings';
@@ -87,9 +87,12 @@ export function loadSettings(): Settings {
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw);
     const s = { ...DEFAULT_SETTINGS, ...parsed } as Settings;
-    // Migrate to the explicit approvalMode: if older storage didn't have it, infer from
-    // the saved per-tool perms (so the user keeps their effective mode); never 'custom'.
+    // Migrate to the explicit approvalMode: if older storage didn't have it, FREEZE the
+    // user's effective legacy perms by filling missing tools with their per-tool defaults
+    // (so newly-added tools don't silently change behavior), then infer the mode (never
+    // 'custom' — the map is the source of truth for execution either way).
     if (!parsed.approvalMode) {
+      s.toolPermissions = { ...defaultToolPermissions(), ...(s.toolPermissions || {}) };
       const d = deriveApprovalMode(s.toolPermissions);
       s.approvalMode = d === 'custom' ? 'read' : d;
     }
