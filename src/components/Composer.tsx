@@ -140,7 +140,9 @@ export function Composer({
   }, [atMatch, controller.settings.workingDir]);
 
   const curMode = controller.settings.agentMode || 'chat';
-  const SLASH: { cmd: string; label: string; run: () => void }[] = [
+  // `run` = execute immediately (and clear the box); `insert` = drop text into the box
+  // for the user to complete (e.g. /rename <title>, /mention @file) instead of running.
+  const SLASH: { cmd: string; label: string; run?: () => void; insert?: string }[] = [
     { cmd: 'plan', label: t('cmdPlan'), run: () => controller.updateSettings({ agentMode: curMode === 'plan' ? 'chat' : 'plan' }) },
     { cmd: 'goal', label: t('cmdGoal'), run: () => controller.updateSettings({ agentMode: curMode === 'goal' ? 'chat' : 'goal' }) },
     { cmd: 'clear', label: t('cmdClear'), run: () => controller.clearActive() },
@@ -148,6 +150,9 @@ export function Composer({
     { cmd: 'diff', label: t('cmdDiff'), run: () => controller.runGitDiff() },
     { cmd: 'status', label: t('cmdStatus'), run: () => controller.showStatus() },
     { cmd: 'new', label: t('cmdNew'), run: () => controller.newConversation() },
+    { cmd: 'rename', label: t('cmdRename'), insert: '/rename ' },
+    { cmd: 'fork', label: t('cmdFork'), run: () => { if (controller.activeId) controller.duplicateConversation(controller.activeId); } },
+    { cmd: 'mention', label: t('cmdMention'), insert: '@' },
     { cmd: 'review', label: t('cmdReview'), run: () => controller.sendMessage(t('reviewPrompt')) },
     {
       cmd: 'copy',
@@ -208,9 +213,15 @@ export function Composer({
       primary: '/' + s.cmd,
       secondary: s.label,
       run: () => {
-        s.run();
-        setText('');
-        setDismissed(true);
+        if (s.insert !== undefined) {
+          setText(s.insert);
+          setDismissed(false); // let @-mention autocomplete kick in for /mention
+          ref.current?.focus();
+        } else {
+          s.run?.();
+          setText('');
+          setDismissed(true);
+        }
       },
     }));
     if (items.length) suggestions = { kind: 'slash', items };
@@ -228,6 +239,13 @@ export function Composer({
   const submit = () => {
     const tx = text.trim();
     if (!tx || generating || disabled) return;
+    // /rename <title> renames the active conversation instead of sending a message.
+    const rn = /^\/rename\s+(.+)$/.exec(tx);
+    if (rn) {
+      if (controller.activeId) controller.renameConversation(controller.activeId, rn[1].trim());
+      setText('');
+      return;
+    }
     onSend(tx);
     setText('');
   };
