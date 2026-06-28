@@ -94,7 +94,7 @@ export function Sidebar({
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [submenuLeft, setSubmenuLeft] = useState(false);
   const userGroups = controller.groups;
   // Per-project (working-dir) collapse state, persisted across restarts.
@@ -161,14 +161,13 @@ export function Sidebar({
   // Position the kebab menu with fixed coords so it escapes the sidebar's scroll
   // clipping (lets the submenu fly out to the right like Claude/Codex Desktop).
   const computeMenuPos = (el: HTMLElement) => {
-    const W = 200;
     const H = 380;
     const r = el.getBoundingClientRect();
-    const left = Math.max(8, Math.min(r.right - W, window.innerWidth - W - 8));
+    // Right-align the menu to the kebab button (its top-right sits at the dots) regardless
+    // of menu width, instead of guessing a width and drifting left.
+    const right = Math.max(8, window.innerWidth - r.right);
     const top = r.bottom + H > window.innerHeight ? Math.max(8, r.top - H) : r.bottom + 4;
-    setMenuPos({ top, left });
-    // Flip the move-to-group submenu to the left if it would overflow the right edge.
-    setSubmenuLeft(left + W + 170 > window.innerWidth);
+    setMenuPos({ top, right });
   };
 
   useEffect(() => {
@@ -282,7 +281,7 @@ export function Sidebar({
         {groupMenuId === g.id && (
           <div
             className="conv-menu"
-            style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+            style={menuPos ? { position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' } : undefined}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -342,7 +341,16 @@ export function Sidebar({
             <Pin size={13} strokeWidth={2} fill="currentColor" />
           </span>
         )}
-        <span className="conv-title">{c.title}</span>
+        <span
+          className="conv-title"
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            setRenameId(c.id);
+            setRenameText(c.title);
+          }}
+        >
+          {c.title}
+        </span>
         {controller.runningIds.has(c.id) ? (
           <span className="conv-spin" title="Running…" aria-label="running" />
         ) : controller.unreadIds.has(c.id) ? (
@@ -367,7 +375,7 @@ export function Sidebar({
         {menuId === c.id && (
           <div
             className="conv-menu"
-            style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+            style={menuPos ? { position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' } : undefined}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -548,7 +556,7 @@ export function Sidebar({
                       {projMenuCwd === p.cwd && (
                         <div
                           className="conv-menu"
-                          style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+                          style={menuPos ? { position: 'fixed', top: menuPos.top, right: menuPos.right, left: 'auto' } : undefined}
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button

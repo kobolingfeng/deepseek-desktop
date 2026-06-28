@@ -58,6 +58,72 @@ textarea {
   height: 100%;
   background: var(--bg-app);
 }
+/* Frameless-window resize handles (thin edges + corners overlaying the window border). */
+.resize-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+.resize-zone {
+  position: absolute;
+  pointer-events: auto;
+}
+.resize-top,
+.resize-bottom {
+  left: 10px;
+  right: 10px;
+  height: 5px;
+}
+.resize-top {
+  top: 0;
+  cursor: ns-resize;
+}
+.resize-bottom {
+  bottom: 0;
+  cursor: ns-resize;
+}
+.resize-left,
+.resize-right {
+  top: 10px;
+  bottom: 10px;
+  width: 5px;
+}
+.resize-left {
+  left: 0;
+  cursor: ew-resize;
+}
+.resize-right {
+  right: 0;
+  cursor: ew-resize;
+}
+.resize-top-left,
+.resize-top-right,
+.resize-bottom-left,
+.resize-bottom-right {
+  width: 11px;
+  height: 11px;
+}
+.resize-top-left {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+.resize-top-right {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+.resize-bottom-left {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+.resize-bottom-right {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
 .body {
   flex: 1;
   display: flex;
