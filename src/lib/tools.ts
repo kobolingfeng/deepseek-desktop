@@ -389,6 +389,22 @@ function truncate(s: string, max: number): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Sleep that rejects if the turn is cancelled (Stop) — so a tool waiting on a process
+// can abort and clean up instead of blocking until the timer elapses.
+const sleepAbortable = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('aborted'));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        reject(new Error('aborted'));
+      },
+      { once: true },
+    );
+  });
+
 // Encode a script as base64 of its UTF-16LE bytes for `powershell -EncodedCommand`
 // (sidesteps all shell quoting). btoa over a Latin-1 byte string; handles BMP + astral.
 function psEncode(script: string): string {
@@ -432,11 +448,19 @@ const BINARY_EXT =
   /\.(png|jpe?g|gif|webp|ico|bmp|pdf|zip|gz|tar|rar|7z|exe|dll|so|dylib|bin|obj|pdb|lib|exp|woff2?|ttf|otf|eot|mp3|mp4|mov|avi|webm|wasm|class|jar|node|lock)$/i;
 
 /** Breadth-first file walk under root, skipping heavy/vendored dirs. */
-async function walkFiles(root: string, max = 4000): Promise<string[]> {
+async function walkFiles(root: string, max = 4000, maxDirs = 4000): Promise<string[]> {
   const out: string[] = [];
   const queue: string[] = [root];
-  while (queue.length && out.length < max) {
+  // Track visited dirs (normalized) + cap the dir count so a symlink/junction cycle
+  // can't loop forever or walk far outside the tree.
+  const seen = new Set<string>();
+  let dirsVisited = 0;
+  while (queue.length && out.length < max && dirsVisited < maxDirs) {
     const dir = queue.shift() as string;
+    const key = dir.replace(/[\\/]+$/, '').toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dirsVisited++;
     let entries;
     try {
       entries = await fs.readDir(dir);
@@ -446,7 +470,7 @@ async function walkFiles(root: string, max = 4000): Promise<string[]> {
     for (const e of entries) {
       const full = dir.replace(/[\\/]+$/, '') + '\\' + e.name;
       if (e.isDir) {
-        if (!IGNORE_DIRS.has(e.name)) queue.push(full);
+        if (!IGNORE_DIRS.has(e.name) && !seen.has(full.toLowerCase())) queue.push(full);
       } else {
         out.push(full);
         if (out.length >= max) break;
@@ -743,10 +767,14 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       const p = resolvePath(args.path || '.', settings.workingDir);
       const entries = await fs.readDir(p);
       if (!entries.length) return '(empty directory)';
-      return entries
-        .sort((x, y) => Number(y.isDir) - Number(x.isDir) || x.name.localeCompare(y.name))
+      const sorted = entries.sort((x, y) => Number(y.isDir) - Number(x.isDir) || x.name.localeCompare(y.name));
+      const CAP = 1000; // bound a huge directory so it can't flood the model context
+      let out = sorted
+        .slice(0, CAP)
         .map((e) => (e.isDir ? '[DIR] ' : '      ') + e.name)
         .join('\n');
+      if (sorted.length > CAP) out += `\n… and ${sorted.length - CAP} more (${sorted.length} entries total)`;
+      return out;
     }
     case 'web_search': {
       const q = String(args.query || '').trim();
@@ -768,6 +796,11 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     case 'read_office': {
       const p = resolvePath(args.path, settings.workingDir);
       if (!p) throw new Error('path is required');
+      // Cap by file size first: readOffice expands the whole workbook/doc before truncating,
+      // so a huge (or zip-bomb-like) file could spike memory/CPU.
+      const st = await fs.stat(p).catch(() => null);
+      if (st && st.size > 25_000_000)
+        throw new Error(`file is too large to read (${Math.round(st.size / 1e6)} MB); the cap is 25 MB`);
       return truncate(await readOffice(p), 60000);
     }
     case 'find_files': {
@@ -818,7 +851,10 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
         if (content.length > 1_000_000) continue;
         const fl = content.split('\n');
         for (let i = 0; i < fl.length && lines.length < 100; i++) {
-          if (re.test(fl[i])) lines.push(`${toRel(f.replace(/\\/g, '/'), rootNorm)}:${i + 1}: ${fl[i].trim().slice(0, 200)}`);
+          // Skip very long lines before re.test: a pathological pattern + a long line is
+          // the classic catastrophic-backtracking (ReDoS) freeze on the single-threaded UI.
+          if (fl[i].length <= 2000 && re.test(fl[i]))
+            lines.push(`${toRel(f.replace(/\\/g, '/'), rootNorm)}:${i + 1}: ${fl[i].trim().slice(0, 200)}`);
         }
       }
       if (!lines.length) return `No matches for /${q}/ under ${root}`;
@@ -919,7 +955,14 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
         args: ['-NoProfile', '-NoLogo', '-EncodedCommand', psEncode(cmd)],
         cwd: wd || undefined,
       });
-      await sleep(Math.min(Math.max(Number(args.wait_ms) || 1500, 0), 15000));
+      // If the turn is stopped during the initial wait, kill the just-started session so
+      // it isn't orphaned (the model never received its id).
+      try {
+        await sleepAbortable(Math.min(Math.max(Number(args.wait_ms) || 1500, 0), 15000), ctx.signal);
+      } catch {
+        await shell.session.kill(sessionId).catch(() => {});
+        throw new Error('cancelled');
+      }
       const r = await shell.session.read(sessionId);
       return formatSession(sessionId, r);
     }

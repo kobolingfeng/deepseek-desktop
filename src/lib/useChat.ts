@@ -371,6 +371,9 @@ export function useChat() {
   }
 
   function deleteConversation(id: string) {
+    // If it's mid-turn, stop it first so the turn doesn't keep running (and auto-approved
+    // edits keep firing) invisibly after the conversation is gone.
+    if (runningIdsRef.current.has(id)) stop();
     convsRef.current = convsRef.current.filter((c) => c.id !== id);
     runningIdsRef.current.delete(id);
     unreadIdsRef.current.delete(id); // don't leave a stuck taskbar badge
@@ -508,13 +511,15 @@ export function useChat() {
 
   function clearActive() {
     const conv = getActive();
-    if (conv) {
-      conv.messages = [];
-      conv.todos = undefined;
-      conv.updatedAt = Date.now();
-      persist();
-      bumpNow();
-    }
+    if (!conv) return;
+    // Don't wipe messages mid-turn: streaming callbacks still mutate the old objects,
+    // which would orphan tool results and corrupt the next request. Stop first.
+    if (runningIdsRef.current.has(conv.id)) return;
+    conv.messages = [];
+    conv.todos = undefined;
+    conv.updatedAt = Date.now();
+    persist();
+    bumpNow();
   }
 
   function showStatus() {
@@ -647,7 +652,7 @@ export function useChat() {
     const recent = msgs.slice(splitAt);
     if (older.length < 3) return;
 
-    const { promise } = streamChat(
+    const { promise, cancel } = streamChat(
       {
         messages: [
           { id: newId('c'), role: 'user', content: COMPACT_PROMPT + '\n\n---\n' + renderTranscript(older), createdAt: Date.now() },
@@ -657,12 +662,18 @@ export function useChat() {
       },
       {},
     );
+    // Register the compaction stream so Stop cancels it too.
+    const prevCancel = cancelRef.current;
+    cancelRef.current = cancel;
     let summary = '';
     try {
       summary = (await promise).content;
     } catch {
       return; // compaction failed — keep the full history rather than lose it
+    } finally {
+      if (cancelRef.current === cancel) cancelRef.current = prevCancel;
     }
+    if (stoppedRef.current) return; // Stop pressed during compaction
     if (!summary.trim()) return;
 
     const label =
@@ -735,6 +746,7 @@ export function useChat() {
         // Re-check before every model request: tool outputs + goal continuations
         // added during a long turn can push the context past the threshold.
         await maybeCompact(conv, cfg);
+        if (stoppedRef.current) break; // Stop may have been pressed during compaction
 
         const asst: Message = {
           id: newId('a'),

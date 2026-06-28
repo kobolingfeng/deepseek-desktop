@@ -156,13 +156,18 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
   let sseBuf = '';
   let rawErrBuf = '';
   let usage: Usage | null = null;
+  let sawDone = false; // did we see the SSE `[DONE]` sentinel? (to detect truncated streams)
   const toolCalls: ToolCall[] = [];
 
   function handleLine(line: string) {
     const t = line.trimStart();
     if (!t.startsWith('data:')) return;
     const payload = t.slice(5).trim();
-    if (!payload || payload === '[DONE]') return;
+    if (payload === '[DONE]') {
+      sawDone = true;
+      return;
+    }
+    if (!payload) return;
     let obj: any;
     try {
       obj = JSON.parse(payload);
@@ -256,7 +261,11 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         if (isErrorStatus) rejectFn(new Error(parseError(rawErrBuf, status)));
         else {
           flushSse();
-          resolveFn(finalResult());
+          // A proper stream ends with `[DONE]` or a finish_reason; neither means the
+          // connection was cut mid-response — fail instead of accepting a truncated reply.
+          if (!sawDone && !finishReason)
+            rejectFn(new Error('the model stream ended without a completion marker — the response may be truncated. Please retry.'));
+          else resolveFn(finalResult());
         }
       } else if (e.type === 'error') {
         settled = true;
@@ -308,7 +317,9 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         flushSse();
         if (!settled) {
           settled = true;
-          resolveFn(finalResult());
+          if (!sawDone && !finishReason)
+            rejectFn(new Error('the model stream ended without a completion marker — the response may be truncated. Please retry.'));
+          else resolveFn(finalResult());
         }
       } catch (err) {
         if (settled) return;
