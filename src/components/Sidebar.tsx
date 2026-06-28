@@ -530,8 +530,9 @@ export function Sidebar({
                   <ChevronRight size={12} strokeWidth={2.2} />
                 </span>
               </div>
-              {!secCollapsed &&
-                (s.kind === 'projects'
+              <div className={`conv-collapse ${secCollapsed ? '' : 'open'}`}>
+                <div className="conv-collapse-inner">
+                {(s.kind === 'projects'
                   ? s.projects.map((p) => {
                 const collapsed = collapsedProjects.has(p.cwd);
                 return (
@@ -608,11 +609,15 @@ export function Sidebar({
                         </div>
                       )}
                     </div>
-                    {!collapsed && p.items.map(renderItem)}
+                    <div className={`conv-collapse ${collapsed ? '' : 'open'}`}>
+                      <div className="conv-collapse-inner">{p.items.map(renderItem)}</div>
+                    </div>
                   </div>
                 );
                     })
                   : s.items.map(renderItem))}
+                </div>
+              </div>
             </div>
           );
         })}
@@ -626,7 +631,9 @@ export function Sidebar({
               <span className="group-name"><Archive size={13} strokeWidth={1.9} /> {t('groupArchived')}</span>
               <span className="group-count">{archivedConvs.length}</span>
             </div>
-            {archivedOpen && archivedConvs.map(renderItem)}
+            <div className={`conv-collapse ${archivedOpen ? 'open' : ''}`}>
+              <div className="conv-collapse-inner">{archivedConvs.map(renderItem)}</div>
+            </div>
           </div>
         )}
       </div>

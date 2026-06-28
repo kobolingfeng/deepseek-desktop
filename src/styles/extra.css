@@ -153,6 +153,23 @@
 .terminal-host .xterm {
   height: 100%;
 }
+/* Smooth expand/collapse for sidebar conversation groups + the plan panel, via the
+   grid-template-rows 0fr↔1fr trick (animates to the content's natural height). */
+.conv-collapse,
+.todo-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-2) var(--ease-out);
+}
+.conv-collapse.open,
+.todo-collapse.open {
+  grid-template-rows: 1fr;
+}
+.conv-collapse-inner,
+.todo-collapse > .todo-body {
+  overflow: hidden;
+  min-height: 0;
+}
 .side-empty {
   margin: auto;
   padding: var(--space-6);

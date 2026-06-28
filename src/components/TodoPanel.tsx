@@ -13,7 +13,7 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
   // upward (the header stays put, pinned to the input box).
   return (
     <div className="todo-panel">
-      {open && (
+      <div className={`todo-collapse ${open ? 'open' : ''}`}>
         <div className="todo-body">
           {todos.map((it, i) => (
             <div key={i} className={`todo-item ${it.status}`}>
@@ -22,7 +22,7 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
             </div>
           ))}
         </div>
-      )}
+      </div>
       <button className="todo-head" onClick={() => setOpen((o) => !o)}>
         <span className="todo-title"><ListTodo size={14} strokeWidth={1.9} /> {t('planTitle')}</span>
         <span className="todo-count">
