@@ -71,6 +71,7 @@ export function parsePatch(text: string): PatchOp[] {
 }
 
 const rtrim = (s: string) => s.replace(/\s+$/, '');
+const leadWs = (s: string) => (s.match(/^[ \t]*/) || [''])[0];
 
 function indexOfBlock(hay: string[], needle: string[], from = 0): number {
   if (!needle.length) return -1;
@@ -86,22 +87,59 @@ function indexOfBlock(hay: string[], needle: string[], from = 0): number {
   return -1;
 }
 
+function countMatches(hay: string[], needle: string[]): number {
+  if (!needle.length) return 0;
+  let n = 0;
+  for (let i = 0; i + needle.length <= hay.length; i++) {
+    let ok = true;
+    for (let j = 0; j < needle.length; j++)
+      if (hay[i + j] !== needle[j]) {
+        ok = false;
+        break;
+      }
+    if (ok) n++;
+  }
+  return n;
+}
+
+// Shift a line's leading indentation by `delta` columns — used when a patch matched on a
+// whitespace-insensitive basis but its indentation didn't match the file.
+function reindent(s: string, delta: number): string {
+  if (delta === 0) return s;
+  if (delta > 0) return ' '.repeat(delta) + s;
+  return s.slice(Math.min(-delta, leadWs(s).length));
+}
+
 /** Apply update sections to file content. Throws if a section's context isn't found. */
 export function applySections(content: string, sections: HunkLine[][]): string {
   let lines = content.split('\n');
   for (const sec of sections) {
     const oldBlock = sec.filter((h) => h.t !== '+').map((h) => h.s);
-    const newBlock = sec.filter((h) => h.t !== '-').map((h) => h.s);
+    let newBlock = sec.filter((h) => h.t !== '-').map((h) => h.s);
     if (!oldBlock.length) {
       lines = lines.concat(newBlock); // pure addition with no context → append
       continue;
     }
-    let at = indexOfBlock(lines, oldBlock);
-    if (at < 0) {
-      // fuzzy: ignore trailing whitespace differences
-      at = indexOfBlock(lines.map(rtrim), oldBlock.map(rtrim));
+    // tier 1: exact match. If the context appears more than once it's ambiguous — error
+    // (forcing the model to add more context) rather than silently editing the wrong spot.
+    const exact = countMatches(lines, oldBlock);
+    if (exact > 1)
+      throw new Error(
+        `context is ambiguous — it appears ${exact} times; include more surrounding unchanged lines to pin the exact location:\n` +
+          oldBlock.slice(0, 4).join('\n'),
+      );
+    // tier 2: ignore trailing whitespace.
+    let at = exact === 1 ? indexOfBlock(lines, oldBlock) : indexOfBlock(lines.map(rtrim), oldBlock.map(rtrim));
+    if (at >= 0) {
+      lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
+      continue;
     }
+    // tier 3: match ignoring leading+trailing whitespace (models often mis-indent the
+    // context), then re-indent the replacement to the file's real indentation.
+    at = indexOfBlock(lines.map((s) => s.trim()), oldBlock.map((s) => s.trim()));
     if (at < 0) throw new Error('could not find the context to update:\n' + oldBlock.slice(0, 4).join('\n'));
+    const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
+    if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
     lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
   }
   return lines.join('\n');
