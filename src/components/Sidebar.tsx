@@ -497,10 +497,10 @@ export function Sidebar({
           return (
             <div key={s.key} className="conv-group">
               <div className="conv-section-label sec-head" onClick={() => toggleSection(s.key)}>
+                <span>{label}</span>
                 <span className={`proj-caret ${secCollapsed ? '' : 'open'}`} aria-hidden>
                   <ChevronRight size={12} strokeWidth={2.2} />
                 </span>
-                <span>{label}</span>
               </div>
               {!secCollapsed &&
                 (s.kind === 'projects'
@@ -513,13 +513,13 @@ export function Sidebar({
                       title={p.cwd}
                       onClick={() => toggleProject(p.cwd)}
                     >
+                      <Folder size={13} strokeWidth={1.9} />
+                      <span className="conv-project-name">{p.name}</span>
                       <span className={`proj-caret ${collapsed ? '' : 'open'}`} aria-hidden>
                         <ChevronRight size={13} strokeWidth={2} />
                       </span>
-                      <Folder size={13} strokeWidth={1.9} />
-                      <span className="conv-project-name">{p.name}</span>
                       <button
-                        className="proj-act"
+                        className="proj-act proj-act-lead"
                         title={t('newChatHere')}
                         aria-label={t('newChatHere')}
                         onClick={(e) => {

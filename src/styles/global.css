@@ -332,15 +332,21 @@ textarea {
   flex-shrink: 0;
 }
 .conv-project-name {
-  flex: 1;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .proj-caret {
   display: inline-flex;
+  flex-shrink: 0;
   color: var(--text-tertiary);
   transition: transform var(--dur-1);
+}
+/* Push the project action buttons to the far right (caret hugs the name). */
+.proj-act-lead {
+  margin-left: auto;
 }
 .proj-caret.open {
   transform: rotate(90deg);
