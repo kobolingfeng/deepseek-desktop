@@ -225,6 +225,7 @@ const en: Dict = {
   reasoningBadge: 'Reasoning',
 
   settingsTitle: 'Settings',
+  backToApp: 'Back to app',
   secModel: 'Model',
   secApi: 'API',
   secPermissions: 'Tool permissions',
@@ -483,6 +484,7 @@ const zh: Dict = {
   reasoningBadge: '推理',
 
   settingsTitle: '设置',
+  backToApp: '返回应用',
   secModel: '模型',
   secApi: 'API',
   secPermissions: '工具权限',

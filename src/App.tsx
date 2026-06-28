@@ -140,21 +140,25 @@ export function App() {
         <ResizeLayer />
         <TitleBar controller={controller} />
         <div className="body">
-          <Sidebar
-            controller={controller}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onCloseSettings={() => setSettingsOpen(false)}
-            onOpenSearch={() => setPaletteOpen(true)}
-            settingsOpen={settingsOpen}
-          />
-          <main className="main">
-            {settingsOpen ? (
-              <Settings controller={controller} onClose={() => setSettingsOpen(false)} />
-            ) : (
-              <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
-            )}
-          </main>
-          <PreviewPanel controller={controller} />
+          {settingsOpen ? (
+            // Settings takes over the whole body (Codex-style): its own left nav replaces the
+            // conversation sidebar, rather than nesting a second sidebar inside the content area.
+            <Settings controller={controller} onClose={() => setSettingsOpen(false)} />
+          ) : (
+            <>
+              <Sidebar
+                controller={controller}
+                onOpenSettings={() => setSettingsOpen(true)}
+                onCloseSettings={() => setSettingsOpen(false)}
+                onOpenSearch={() => setPaletteOpen(true)}
+                settingsOpen={settingsOpen}
+              />
+              <main className="main">
+                <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
+              </main>
+              <PreviewPanel controller={controller} />
+            </>
+          )}
         </div>
         {paletteOpen && (
           <CommandPalette

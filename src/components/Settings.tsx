@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { dialog } from '../api';
 import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
@@ -62,15 +63,11 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
 
   return (
     <div className="settings">
-      <div className="settings-head">
-        <h2>{t('settingsTitle')}</h2>
-        <button className="settings-close" onClick={onClose} title="Close">
-          ✕
+      <nav className="settings-nav">
+        <button className="settings-back" onClick={onClose}>
+          <ArrowLeft size={16} strokeWidth={2} /> {t('backToApp')}
         </button>
-      </div>
-
-      <div className="settings-body">
-        <nav className="settings-nav">
+        <div className="settings-nav-list">
           {CATS.map((c) => (
             <button
               key={c.id}
@@ -80,8 +77,9 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
               {t(c.key)}
             </button>
           ))}
-        </nav>
-        <div className="settings-pane">
+        </div>
+      </nav>
+      <div className="settings-pane">
         {/* API */}
         <div className="settings-section" hidden={tab !== 'general'}>
           <div className="section-title">{t('secApi')}</div>
@@ -357,7 +355,6 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
         </div>
 
         {tab === 'appearance' && <div className="about">{t('about')}</div>}
-        </div>
       </div>
     </div>
   );

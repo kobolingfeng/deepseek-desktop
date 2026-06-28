@@ -1560,47 +1560,40 @@ textarea {
 }
 
 /* ============ Settings ============ */
+/* Settings takes over the whole body (Codex-style): the left nav uses the sidebar's width +
+   styling so it visually REPLACES the conversation sidebar; the pane on the right is content. */
 .settings {
   flex: 1;
   display: flex;
-  flex-direction: column;
   min-height: 0;
 }
-.settings-head {
+.settings-nav {
+  flex-shrink: 0;
+  width: var(--sidebar-w, 272px);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-back {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-5) var(--space-7);
-  border-bottom: 1px solid var(--border-subtle);
-}
-.settings-head h2 {
-  margin: 0;
-  font-size: var(--text-xl);
-  font-weight: var(--fw-semibold);
-}
-.settings-close {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: var(--space-3);
   color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--text-md);
+  transition: background var(--dur-1), color var(--dur-1);
 }
-.settings-close:hover {
+.settings-back:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.settings-body {
-  flex: 1;
-  display: flex;
-  min-height: 0;
-  overflow: hidden;
-}
-/* Left category nav (Codex-style); each section is its own sub-page. */
-.settings-nav {
-  flex-shrink: 0;
-  width: 190px;
-  padding: var(--space-4) var(--space-3);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
+.settings-nav-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
