@@ -468,8 +468,23 @@ export function Sidebar({
     );
   };
 
+  // Drag the right edge to resize the sidebar (clamped 200–420 in setSidebarWidth).
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = controller.sidebarWidth;
+    const onMove = (ev: MouseEvent) => controller.setSidebarWidth(startW + (ev.clientX - startX));
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
     <aside className="sidebar">
+      <div className="sidebar-resize" onMouseDown={startResize} />
       <nav className="sidebar-menu">
         <button className="sidebar-menu-item" onClick={handleNewChat}>
           <svg className="smi-ico" viewBox="0 0 24 24" width="16" height="16" aria-hidden>

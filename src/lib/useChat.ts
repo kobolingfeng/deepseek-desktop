@@ -268,6 +268,20 @@ export function useChat() {
     setPanelWidthState(w);
     savePanelPrefs({ ...loadPanelPrefs(), width: w });
   };
+  // Left sidebar width (drag-resizable, clamped) and global UI zoom (Ctrl ±/0) — both persisted.
+  const [sidebarWidth, setSidebarWidthState] = useState(() => loadPanelPrefs().sidebarWidth || 272);
+  const setSidebarWidth = (w: number) => {
+    const c = Math.min(420, Math.max(200, Math.round(w)));
+    setSidebarWidthState(c);
+    savePanelPrefs({ ...loadPanelPrefs(), sidebarWidth: c });
+  };
+  const [zoom, setZoomState] = useState(() => loadPanelPrefs().zoom || 1);
+  const clampZoom = (z: number) => Math.min(2, Math.max(0.6, Math.round(z * 100) / 100));
+  const setZoom = (z: number) => setZoomState(clampZoom(z));
+  const zoomBy = (d: number) => setZoomState((z) => clampZoom(z + d)); // functional → safe rapid presses
+  useEffect(() => {
+    savePanelPrefs({ ...loadPanelPrefs(), zoom });
+  }, [zoom]);
   const setPreviewUrl = (u: string) => {
     setPreviewUrlState(u);
     setPreviewNonce((n) => n + 1);
@@ -1334,6 +1348,8 @@ export function useChat() {
     panelOpen,
     panelTab,
     panelWidth,
+    sidebarWidth,
+    zoom,
     previewUrl,
     previewNonce,
     undoCount: checkpointsRef.current.get(activeId ?? '')?.length || 0,
@@ -1345,6 +1361,9 @@ export function useChat() {
     togglePanel,
     setPanelTab,
     setPanelWidth,
+    setSidebarWidth,
+    setZoom,
+    zoomBy,
     setPreviewUrl,
     sendMessage,
     closeStatus,

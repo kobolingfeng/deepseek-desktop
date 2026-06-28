@@ -135,10 +135,6 @@ export function ChatView({
         </div>
       )}
 
-      {activeConversation?.todos && activeConversation.todos.length > 0 && (
-        <TodoPanel todos={activeConversation.todos} />
-      )}
-
       <div className="messages" ref={scrollerRef} onScroll={onScroll}>
         {isEmpty ? (
           <div className="welcome">
@@ -251,6 +247,10 @@ export function ChatView({
             </button>
           )}
         </div>
+      )}
+
+      {activeConversation?.todos && activeConversation.todos.length > 0 && (
+        <TodoPanel todos={activeConversation.todos} />
       )}
 
       <Composer

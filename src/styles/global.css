@@ -282,6 +282,7 @@ textarea {
 
 /* ============ Sidebar ============ */
 .sidebar {
+  position: relative;
   width: var(--sidebar-w, 272px);
   flex-shrink: 0;
   background: var(--bg-sidebar);
@@ -290,6 +291,18 @@ textarea {
   flex-direction: column;
   padding: var(--space-3);
   gap: var(--space-2);
+}
+.sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.sidebar-resize:hover {
+  background: var(--accent-soft);
 }
 .new-chat {
   display: flex;
@@ -643,7 +656,7 @@ textarea {
 
 /* Plan / TODO panel */
 .todo-panel {
-  margin: var(--space-3) var(--space-4) 0;
+  margin: 0 var(--space-4) var(--space-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
@@ -671,8 +684,8 @@ textarea {
   color: var(--text-tertiary);
 }
 .todo-body {
-  padding: 6px 13px 10px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 8px 13px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 .todo-item {
   display: flex;

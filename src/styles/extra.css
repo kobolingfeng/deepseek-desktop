@@ -185,6 +185,57 @@
   font-size: var(--text-xs, 11px);
   color: var(--text-tertiary);
 }
+.sc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+.sc-modal {
+  width: 380px;
+  max-width: 90vw;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.32);
+}
+.sc-title {
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.sc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.sc-keys {
+  display: inline-flex;
+  gap: 4px;
+}
+.sc-keys kbd {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
 .change-file {
   border-radius: var(--radius-sm);
   overflow: hidden;

@@ -10,7 +10,14 @@ const GROUPS_KEY = 'deepseek.groups';
 const MODELS_KEY = 'deepseek.models';
 const PANEL_KEY = 'deepseek.panel';
 
-export function loadPanelPrefs(): { width?: number; url?: string } {
+export interface PanelPrefs {
+  width?: number;
+  url?: string;
+  sidebarWidth?: number;
+  zoom?: number;
+}
+
+export function loadPanelPrefs(): PanelPrefs {
   try {
     const raw = localStorage.getItem(PANEL_KEY);
     const o = raw ? JSON.parse(raw) : {};
@@ -20,7 +27,7 @@ export function loadPanelPrefs(): { width?: number; url?: string } {
   }
 }
 
-export function savePanelPrefs(p: { width?: number; url?: string }): void {
+export function savePanelPrefs(p: PanelPrefs): void {
   try {
     localStorage.setItem(PANEL_KEY, JSON.stringify(p));
   } catch {

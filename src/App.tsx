@@ -6,9 +6,10 @@ import { PreviewPanel } from './components/PreviewPanel';
 import { Settings } from './components/Settings';
 import { Sidebar } from './components/Sidebar';
 import { TitleBar } from './components/TitleBar';
+import { ShortcutsPanel } from './components/ShortcutsPanel';
 import { useChat } from './lib/useChat';
 import { I18nProvider, detectLang } from './lib/i18n';
-import { os, win, type ResizeEdge } from './api';
+import { os, win, tray, type ResizeEdge } from './api';
 
 // Frameless-window resize handles: the WebView covers the native resize border, so we
 // overlay thin edge/corner zones that ask the shell to start a native resize-drag.
@@ -35,6 +36,7 @@ export function App() {
   const controller = useChat();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const themePref = controller.settings.theme;
 
   // Apply colour theme: follow Windows when "system", otherwise force. Also push the
@@ -69,6 +71,28 @@ export function App() {
     return () => { cancelled = true; cancelAnimationFrame(raf); off?.(); };
   }, [themePref]);
 
+  // Apply persisted left-sidebar width + global UI zoom to the document root.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-w', controller.sidebarWidth + 'px');
+    document.documentElement.style.setProperty('zoom', String(controller.zoom));
+  }, [controller.sidebarWidth, controller.zoom]);
+
+  // System tray: clicking the tray icon restores + shows the window.
+  useEffect(() => {
+    tray.create('DeepSeek').catch(() => {});
+    const reveal = () => {
+      win.restore().catch(() => {});
+      win.show().catch(() => {});
+    };
+    const offClick = tray.onClick(reveal);
+    const offDbl = tray.onDoubleClick(reveal);
+    return () => {
+      offClick?.();
+      offDbl?.();
+      tray.remove().catch(() => {});
+    };
+  }, []);
+
   // First run: pick UI language from the system locale.
   useEffect(() => {
     if (localStorage.getItem('deepseek.langInit')) return;
@@ -79,16 +103,32 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ctrl/Cmd+K → command palette.
+  // Global shortcuts: Ctrl/Cmd+K palette, Ctrl ±/0 zoom, Ctrl+/ cheat-sheet.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (!e.shiftKey && k === 'k') {
         e.preventDefault();
         setPaletteOpen(true);
+      } else if (!e.shiftKey && (k === '=' || k === '+')) {
+        e.preventDefault();
+        controller.zoomBy(0.1);
+      } else if (!e.shiftKey && (k === '-' || k === '_')) {
+        e.preventDefault();
+        controller.zoomBy(-0.1);
+      } else if (!e.shiftKey && k === '0') {
+        e.preventDefault();
+        controller.setZoom(1);
+      } else if (k === '/') {
+        e.preventDefault();
+        setShortcutsOpen((o) => !o);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -123,6 +163,7 @@ export function App() {
             onOpenSettings={() => setSettingsOpen(true)}
           />
         )}
+        {shortcutsOpen && <ShortcutsPanel onClose={() => setShortcutsOpen(false)} />}
         <ContextMenu />
       </div>
     </I18nProvider>
