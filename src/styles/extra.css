@@ -57,9 +57,23 @@
 .side-panel {
   position: relative;
   flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg-sidebar);
+  /* Animate width so opening/closing glides and the chat pane reflows smoothly. */
+  transition: width var(--dur-2) var(--ease-out);
+}
+/* While dragging the resize handle, track the cursor with no easing lag. */
+.side-panel.resizing {
+  transition: none;
+}
+/* Fixed-width content so it doesn't squash/reflow while the outer width animates — the
+   outer just clips it. The border lives here so it vanishes when the panel is closed. */
+.side-panel-inner {
+  position: relative;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-width: 0;
   background: var(--bg-sidebar);
   border-left: 1px solid var(--border-subtle);
 }

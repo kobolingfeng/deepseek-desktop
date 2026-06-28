@@ -114,7 +114,7 @@ export function App() {
               <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
             )}
           </main>
-          {controller.panelOpen && <PreviewPanel controller={controller} />}
+          <PreviewPanel controller={controller} />
         </div>
         {paletteOpen && (
           <CommandPalette

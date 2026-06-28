@@ -13,13 +13,18 @@ const TABS = ['changes', 'preview', 'tasks'] as const;
 export function PreviewPanel({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const tab = controller.panelTab;
+  // While dragging the resize handle we kill the width transition so it tracks the cursor.
+  const [resizing, setResizing] = useState(false);
+  const open = controller.panelOpen;
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = controller.panelWidth;
+    setResizing(true);
     const onMove = (ev: MouseEvent) => controller.setPanelWidth(Math.min(900, Math.max(320, startW + (startX - ev.clientX))));
     const onUp = () => {
+      setResizing(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
@@ -27,23 +32,32 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
     window.addEventListener('mouseup', onUp);
   };
 
+  // The panel stays mounted; only the outer width animates (0 ↔ panelWidth) so the chat pane
+  // glides wider/narrower. The inner keeps a fixed width so its content doesn't reflow while
+  // sliding — it's just clipped by the outer's overflow.
   return (
-    <aside className="side-panel" style={{ width: controller.panelWidth }}>
-      <div className="side-resize" onMouseDown={startResize} />
-      <div className="side-head">
-        <div className="side-tabs">
-          {TABS.map((k) => (
-            <button key={k} className={`side-tab ${tab === k ? 'active' : ''}`} onClick={() => controller.setPanelTab(k)}>
-              {t('panel_' + k)}
-            </button>
-          ))}
+    <aside
+      className={`side-panel ${open ? 'open' : 'closed'} ${resizing ? 'resizing' : ''}`}
+      style={{ width: open ? controller.panelWidth : 0 }}
+      aria-hidden={!open}
+    >
+      <div className="side-panel-inner" style={{ width: controller.panelWidth }}>
+        <div className="side-resize" onMouseDown={startResize} />
+        <div className="side-head">
+          <div className="side-tabs">
+            {TABS.map((k) => (
+              <button key={k} className={`side-tab ${tab === k ? 'active' : ''}`} onClick={() => controller.setPanelTab(k)}>
+                {t('panel_' + k)}
+              </button>
+            ))}
+          </div>
+          {/* No close button here — the fixed top-right panel toggle handles open/close. */}
         </div>
-        {/* No close button here — the fixed top-right panel toggle handles open/close. */}
-      </div>
-      <div className="side-body">
-        {tab === 'changes' && <ChangesTab controller={controller} />}
-        {tab === 'preview' && <PreviewTab controller={controller} />}
-        {tab === 'tasks' && <TasksTab controller={controller} />}
+        <div className="side-body">
+          {tab === 'changes' && <ChangesTab controller={controller} />}
+          {tab === 'preview' && <PreviewTab controller={controller} />}
+          {tab === 'tasks' && <TasksTab controller={controller} />}
+        </div>
       </div>
     </aside>
   );
