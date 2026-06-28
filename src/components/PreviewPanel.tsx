@@ -37,9 +37,7 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
             </button>
           ))}
         </div>
-        <button className="side-close" onClick={controller.closePanel} title={t('close')}>
-          ✕
-        </button>
+        {/* No close button here — the fixed top-right panel toggle handles open/close. */}
       </div>
       <div className="side-body">
         {tab === 'changes' && <ChangesTab controller={controller} />}
