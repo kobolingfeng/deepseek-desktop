@@ -146,7 +146,8 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     return () => {
       cancelled = true;
     };
-  }, [office, src]);
+    // previewNonce: re-render when the agent rewrites the same file this turn (live refresh).
+  }, [office, src, controller.previewNonce]);
 
   const go = () => {
     let u = url.trim();
@@ -175,6 +176,15 @@ function PreviewTab({ controller }: { controller: ChatController }) {
   .o-slide-title{font-size:clamp(17px,3.4vw,30px);font-weight:700;color:#1a1a1a;line-height:1.2;margin-bottom:.55em;}
   .o-slide-body{margin:0;padding-left:1.15em;font-size:clamp(12px,2vw,18px);line-height:1.55;color:#333;}
   .o-slide-body li{margin:.28em 0;}
+  .o-doc{max-width:820px;margin:0 auto;background:#fff;padding:32px 40px;border-radius:5px;box-shadow:0 1px 6px rgba(0,0,0,.09);}
+  .o-doc h1{font-size:23px;margin:.3em 0 .5em;} .o-doc h2{font-size:18px;margin:1em 0 .4em;} .o-doc h3{font-size:15px;margin:.9em 0 .35em;}
+  .o-doc p{margin:.5em 0;} .o-doc ul,.o-doc ol{margin:.5em 0;padding-left:1.6em;} .o-doc li{margin:.2em 0;}
+  .o-doc table{width:auto;} .o-doc strong{font-weight:700;} .o-doc em{font-style:italic;} .o-doc a{color:#2563eb;}
+  .o-xlsx .o-tabr{position:absolute;width:0;height:0;opacity:0;pointer-events:none;}
+  .o-tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid #d4d4d4;margin-bottom:10px;}
+  .o-tabs label{padding:5px 13px;font-size:12px;color:#666;cursor:pointer;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;background:#e9e9ea;}
+  .o-panel{display:none;}
+  .o-empty{color:#888;padding:20px;}
 </style></head><body>${officeHtml}</body></html>`;
 
   return (

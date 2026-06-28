@@ -209,10 +209,42 @@ export async function officePreviewHtml(p: string): Promise<string> {
   if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
     const b64 = await readBytesBase64(p);
     const wb = XLSX.read(b64, { type: 'base64' });
-    return wb.SheetNames.map(
-      (n) => `<h3 class="o-sheet">${escHtml(n)}</h3>` + XLSX.utils.sheet_to_html(wb.Sheets[n], { editable: false }),
-    ).join('\n');
+    const names = wb.SheetNames;
+    const tableFor = (n: string) => XLSX.utils.sheet_to_html(wb.Sheets[n], { editable: false });
+    if (names.length <= 1) {
+      const n = names[0];
+      return n ? `<h3 class="o-sheet">${escHtml(n)}</h3>${tableFor(n)}` : '<div class="o-empty">(empty workbook)</div>';
+    }
+    // Multiple sheets → CSS-only tabbed view (radios, no scripts → works in the sandboxed
+    // iframe). The :checked rules are per-sheet, so emit them inline alongside the markup.
+    const rules = names
+      .map(
+        (_, i) =>
+          `#os${i}:checked~.o-tabs label[for=os${i}]{background:#fff;color:#1a1a1a;border-color:#d4d4d4 #d4d4d4 #fff;}` +
+          `#os${i}:checked~.o-panels .o-panel:nth-child(${i + 1}){display:block;}`,
+      )
+      .join('');
+    const radios = names
+      .map((_, i) => `<input type="radio" class="o-tabr" name="osheet" id="os${i}"${i === 0 ? ' checked' : ''}>`)
+      .join('');
+    const labels = names.map((n, i) => `<label for="os${i}">${escHtml(n)}</label>`).join('');
+    const panels = names.map((n) => `<div class="o-panel">${tableFor(n)}</div>`).join('');
+    return `<style>${rules}</style><div class="o-xlsx">${radios}<div class="o-tabs">${labels}</div><div class="o-panels">${panels}</div></div>`;
   }
+
+  if (ext === 'docx') {
+    // Real layout (headings, bold, lists, tables) via mammoth — far better than plain text.
+    const b64 = await readBytesBase64(p);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const m = (await import('mammoth')) as unknown as {
+      convertToHtml?: (o: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+      default?: { convertToHtml: (o: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }> };
+    };
+    const mammoth = m.convertToHtml ? m : m.default!;
+    const result = await mammoth.convertToHtml!({ arrayBuffer: bytes.buffer });
+    return `<div class="o-doc">${result.value || '<p>(empty document)</p>'}</div>`;
+  }
+
   const text = await readOffice(p);
   if (ext === 'pptx') {
     // readPptx output is "# Slide N\n<lines>": render each slide as a 16:9 card with the

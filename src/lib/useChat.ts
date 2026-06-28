@@ -243,12 +243,17 @@ export function useChat() {
   const [panelTab, setPanelTab] = useState<'changes' | 'preview' | 'tasks'>('changes');
   const [panelWidth, setPanelWidthState] = useState(() => loadPanelPrefs().width || 460);
   const [previewUrl, setPreviewUrlState] = useState(() => loadPanelPrefs().url || '');
+  // Bumped on every setPreviewUrl call so re-pointing at the SAME file (e.g. the agent
+  // rewrote the open .docx this turn) still forces the preview to reload — the live-refresh
+  // behaviour, done our own way (no file watcher / external server).
+  const [previewNonce, setPreviewNonce] = useState(0);
   const setPanelWidth = (w: number) => {
     setPanelWidthState(w);
     savePanelPrefs({ ...loadPanelPrefs(), width: w });
   };
   const setPreviewUrl = (u: string) => {
     setPreviewUrlState(u);
+    setPreviewNonce((n) => n + 1);
     savePanelPrefs({ ...loadPanelPrefs(), url: u });
   };
 
@@ -1238,6 +1243,7 @@ export function useChat() {
     panelTab,
     panelWidth,
     previewUrl,
+    previewNonce,
     // actions
     openPanel,
     closePanel,
