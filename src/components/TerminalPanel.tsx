@@ -60,6 +60,9 @@ export function TerminalPanel({ cwd }: { cwd?: string }) {
               if (poll) window.clearInterval(poll);
               poll = null;
               term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n');
+              // Reap now: native only auto-reaps on an EMPTY final read, so a final read that
+              // still carried output would otherwise leave the pty + HPCON around until unmount.
+              if (ptyId != null) shell.pty.kill(ptyId).catch(() => {});
             }
           } catch {
             /* transient */

@@ -2745,12 +2745,14 @@ static void reg_extras() {
         std::atomic<DWORD> pid{0};
         HANDLE hInW{nullptr};
         HPCON hPC{nullptr};
+        std::mutex hpcMutex;       // serialize ResizePseudoConsole vs Close (teardown race)
         std::string buf;
         std::mutex bufMutex;
         std::atomic<bool> exited{false};
         std::atomic<DWORD> exitCode{0};
         std::mutex inMutex;
         bool inOpen{true};
+        std::atomic<int> pendingWrites{0}; // bound concurrent write workers
     };
     static std::mutex g_ptyMutex;
     static std::unordered_map<int, std::shared_ptr<Pty>> g_ptys;
@@ -2797,9 +2799,10 @@ static void reg_extras() {
         SIZE_T attrBytes = 0;
         InitializeProcThreadAttributeList(nullptr, 1, 0, &attrBytes);
         si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(GetProcessHeap(), 0, attrBytes);
-        if (!si.lpAttributeList ||
-            !InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attrBytes) ||
+        bool attrInit = si.lpAttributeList && InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attrBytes);
+        if (!attrInit ||
             !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC, sizeof(hPC), nullptr, nullptr)) {
+            if (attrInit) DeleteProcThreadAttributeList(si.lpAttributeList); // free its internals before the heap block
             if (si.lpAttributeList) HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
             ClosePseudoConsole(hPC);
             CloseHandle(inW);
@@ -2872,11 +2875,21 @@ static void reg_extras() {
         }
         if (!p) return json{{"ok", false}, {"error", "pty not found"}};
         if (p->exited.load()) return json{{"ok", false}, {"exited", true}};
-        std::lock_guard<std::mutex> lk(p->inMutex);
-        if (p->inOpen) {
-            DWORD wr = 0;
-            WriteFile(p->hInW, data.data(), (DWORD)data.size(), &wr, nullptr);
-        }
+        // Write OFF the dispatch thread: a full input pipe (huge paste / stalled child) would
+        // otherwise block the UI here and even keep pty.kill from being dispatched. The worker
+        // holds a shared_ptr so the Pty stays alive; pendingWrites bounds a write burst.
+        if (p->pendingWrites.load() > 64) return json{{"ok", false}, {"error", "too many pending writes"}};
+        p->pendingWrites.fetch_add(1);
+        std::thread([p, data]() {
+            {
+                std::lock_guard<std::mutex> lk(p->inMutex);
+                if (p->inOpen) {
+                    DWORD wr = 0;
+                    WriteFile(p->hInW, data.data(), (DWORD)data.size(), &wr, nullptr);
+                }
+            }
+            p->pendingWrites.fetch_sub(1);
+        }).detach();
         return json{{"ok", true}};
     });
 
@@ -2900,7 +2913,10 @@ static void reg_extras() {
         if (exited) r["exitCode"] = (int)p->exitCode.load();
         if (exited && out.empty()) { // reap a finished, fully-drained pty (closes the console)
             std::lock_guard<std::mutex> lk(g_ptyMutex);
-            if (p->hPC) { ClosePseudoConsole(p->hPC); p->hPC = nullptr; }
+            {
+                std::lock_guard<std::mutex> hl(p->hpcMutex);
+                if (p->hPC) { ClosePseudoConsole(p->hPC); p->hPC = nullptr; }
+            }
             g_ptys.erase(id);
         }
         return r;
@@ -2914,10 +2930,11 @@ static void reg_extras() {
             auto it = g_ptys.find(id);
             if (it != g_ptys.end()) p = it->second;
         }
-        if (!p || !p->hPC) return json{{"ok", false}};
+        if (!p) return json{{"ok", false}};
         SHORT cols = (SHORT)((std::max)(1, a.value("cols", 80)));
         SHORT rows = (SHORT)((std::max)(1, a.value("rows", 24)));
-        ResizePseudoConsole(p->hPC, COORD{cols, rows});
+        std::lock_guard<std::mutex> lk(p->hpcMutex); // don't resize while kill/reap is closing hPC
+        if (p->hPC) ResizePseudoConsole(p->hPC, COORD{cols, rows});
         return json{{"ok", true}};
     });
 
@@ -2936,9 +2953,12 @@ static void reg_extras() {
         std::thread([p]() {
             DWORD pid = p->pid.load();
             if (pid) killTree(pid);
-            if (p->hPC) {
-                ClosePseudoConsole(p->hPC);
-                p->hPC = nullptr;
+            {
+                std::lock_guard<std::mutex> hl(p->hpcMutex);
+                if (p->hPC) {
+                    ClosePseudoConsole(p->hPC);
+                    p->hPC = nullptr;
+                }
             }
             std::lock_guard<std::mutex> lk(p->inMutex);
             if (p->inOpen) {

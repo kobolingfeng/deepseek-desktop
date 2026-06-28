@@ -213,7 +213,14 @@ export async function writeMorphPptx(p: string, frames: { items?: MorphItem[] }[
     const f = zip.file(slideXmls[i]);
     if (!f) continue;
     let xml = await f.async('string');
-    if (!xml.includes('p159:morph')) xml = xml.replace('</p:clrMapOvr></p:sld>', `</p:clrMapOvr>${MORPH_XML}</p:sld>`);
+    if (!xml.includes('p159:morph')) {
+      // Insert the transition after clrMapOvr (correct schema order); fall back to just before
+      // </p:sld> if pptxgenjs changed the shape — and throw rather than silently ship no Morph.
+      let injected = xml.replace('</p:clrMapOvr></p:sld>', `</p:clrMapOvr>${MORPH_XML}</p:sld>`);
+      if (injected === xml) injected = xml.replace('</p:sld>', `${MORPH_XML}</p:sld>`);
+      if (injected === xml) throw new Error('writeMorphPptx: could not inject the Morph transition into ' + slideXmls[i]);
+      xml = injected;
+    }
     zip.file(slideXmls[i], xml);
   }
   b64 = await zip.generateAsync({ type: 'base64' });

@@ -820,10 +820,19 @@ export function useChat() {
         cp.files.set(abs, { path: abs, existed: false });
         return;
       }
-      if (isOfficeFile(abs)) cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
-      else cp.files.set(abs, { path: abs, existed: true, text: await fs.readTextFile(abs) });
+      if (isOfficeFile(abs)) {
+        cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
+      } else {
+        try {
+          cp.files.set(abs, { path: abs, existed: true, text: await fs.readTextFile(abs) });
+        } catch {
+          // Unreadable as text (binary / odd encoding) → snapshot raw bytes so Undo can still
+          // restore it, instead of letting the edit silently bypass the checkpoint.
+          cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
+        }
+      }
     } catch {
-      /* unreadable (e.g. too big / binary non-office) — skip; revert will skip it too */
+      /* truly unsnapshottable (e.g. locked / too big) — skip; revert will skip it too */
     }
   }
 
@@ -836,8 +845,12 @@ export function useChat() {
     let n = 0;
     for (const s of cp.files.values()) {
       try {
-        if (!s.existed) await fs.remove(s.path);
-        else if (s.b64 != null) await writeBytesBase64(s.path, s.b64);
+        if (!s.existed) {
+          // Only delete a newly-created FILE; if the path was since replaced by a directory,
+          // never recursively wipe it.
+          const st = await fs.stat(s.path).catch(() => null);
+          if (st && st.isFile) await fs.remove(s.path);
+        } else if (s.b64 != null) await writeBytesBase64(s.path, s.b64);
         else await fs.writeTextFile(s.path, s.text ?? '');
         n++;
       } catch {

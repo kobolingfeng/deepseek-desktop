@@ -197,7 +197,8 @@ const resFile = join(ROOT, 'native', `app-${buildMode}.res`);
 // VERSIONINFO block (shows in the exe's Properties → Details) from app.config.json version.
 const verParts = APP_VERSION.split('.').map((n) => parseInt(n, 10) || 0).concat([0, 0, 0, 0]).slice(0, 4);
 const verComma = verParts.join(',');
-const rcEsc = (s: string) => s.replace(/"/g, '\\"');
+const rcEsc = (s: string) =>
+    s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n\t\x00-\x1f]/g, ' ');
 const versionRc = [
     '1 VERSIONINFO',
     `FILEVERSION ${verComma}`,
