@@ -17,6 +17,7 @@ const TOOL_STATUS: Record<string, string> = {
   start_process: 'statusRunningTool',
   read_process: 'statusRunningTool',
   write_process: 'statusRunningTool',
+  run_subagent: 'statusSubagent',
 };
 
 // Single continuous status indicator for a turn: same element throughout, only the label

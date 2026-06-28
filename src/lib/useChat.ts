@@ -91,6 +91,9 @@ async function expandMentions(text: string, dir: string): Promise<{ path: string
 // breaker below; MAX_TOOL_ITERS is only an absolute last-resort backstop.
 const MAX_TOOL_ITERS = 100;
 const GOAL_MAX_ITERS = 100;
+const SUBAGENT_MAX_ITERS = 15;
+const SUBAGENT_SYSTEM =
+  'You are a SUB-AGENT spawned by the main assistant to complete ONE focused task autonomously, using the available tools. Work it through end to end. You do NOT see the main conversation — rely only on the task instructions given. When finished, reply with a CONCISE summary (a few sentences) of what you did and the key results / file paths — that summary is the ONLY thing the main agent receives. Never ask the user questions; make reasonable assumptions and proceed.';
 // Stop if this many consecutive tool rounds make no progress — all errored, or the
 // exact same call repeated. Catches a model spinning without false-stopping real work.
 const NO_PROGRESS_LIMIT = 6;
@@ -845,6 +848,80 @@ export function useChat() {
     return n;
   }
 
+  // Run an autonomous sub-agent for one focused task: its own fresh message list + the same
+  // tools (minus run_subagent → no recursion), inheriting cwd + approval; returns its summary.
+  // Edits go through the parent turn's checkpoint, so an Undo also reverts the sub-agent's work.
+  async function runSubAgent(
+    tc: ToolCall,
+    baseCfg: Settings,
+    effCwd: string,
+    turnModel: string,
+    convId: string,
+    checkpoint: Checkpoint,
+    signal: AbortSignal,
+  ): Promise<string> {
+    let args: { prompt?: string; description?: string } = {};
+    try {
+      args = JSON.parse(tc.arguments || '{}');
+    } catch {
+      /* ignore */
+    }
+    const prompt = String(args.prompt || args.description || '').trim();
+    if (!prompt) return 'Error: run_subagent requires a prompt.';
+    const subCfg: Settings = {
+      ...baseCfg,
+      workingDir: effCwd,
+      systemPrompt: [SUBAGENT_SYSTEM, modelSupportsTools(turnModel) ? TOOL_SAFETY : ''].filter(Boolean).join('\n\n'),
+    };
+    const subTools = TOOL_SCHEMAS.filter((s) => {
+      const n = (s.function as { name: string }).name;
+      return n !== 'run_subagent' && toolPerm(n, settingsRef.current) !== 'off';
+    });
+    const msgs: Message[] = [{ id: newId('u'), role: 'user', content: prompt, createdAt: Date.now() }];
+    let last = '';
+    for (let i = 0; i < SUBAGENT_MAX_ITERS; i++) {
+      if (signal.aborted) return last || '(sub-agent cancelled)';
+      const handle = streamChat({ messages: msgs, model: turnModel, settings: subCfg, tools: subTools }, {});
+      const onAbort = () => handle.cancel();
+      signal.addEventListener('abort', onAbort);
+      const r = await handle.promise.finally(() => signal.removeEventListener('abort', onAbort));
+      if (r.content) last = r.content;
+      msgs.push({ id: newId('a'), role: 'assistant', content: r.content, toolCalls: r.toolCalls, createdAt: Date.now() });
+      if (!r.toolCalls || !r.toolCalls.length) return r.content || last || '(sub-agent produced no output)';
+      for (const sub of r.toolCalls) {
+        if (signal.aborted) return last || '(sub-agent cancelled)';
+        let out = '';
+        let isErr = false;
+        try {
+          const perm = toolPerm(sub.name, settingsRef.current);
+          if (perm === 'off') {
+            out = 'This tool is disabled by the user.';
+            isErr = true;
+          } else if (perm === 'ask' && !(await requestApproval(convId, sub))) {
+            out = 'User denied this action.';
+            isErr = true;
+          } else {
+            if (EDIT_FILE_TOOLS.has(sub.name)) await snapshotEdit(checkpoint, sub, effCwd);
+            out = await executeTool(sub, subCfg, { signal });
+          }
+        } catch (e: unknown) {
+          out = 'Error: ' + (e instanceof Error ? e.message : String(e));
+          isErr = true;
+        }
+        msgs.push({
+          id: newId('t'),
+          role: 'tool',
+          toolCallId: sub.id,
+          toolName: sub.name,
+          content: out,
+          isError: isErr,
+          createdAt: Date.now(),
+        });
+      }
+    }
+    return last || '(sub-agent reached its step limit)';
+  }
+
   async function runTurn(conv: Conversation) {
     const turn = getTurn(conv.id);
     turn.stopped = false;
@@ -1096,7 +1173,10 @@ export function useChat() {
               // Snapshot the target file before an edit tool first changes it this turn.
               if (EDIT_FILE_TOOLS.has(tc.name)) await snapshotEdit(checkpoint, tc, effCwd);
               try {
-                out = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                out =
+                  tc.name === 'run_subagent'
+                    ? await runSubAgent(tc, toolCfg, effCwd, turnModel, conv.id, checkpoint, ctrl.signal)
+                    : await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
               } catch (e: any) {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;

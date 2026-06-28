@@ -26,6 +26,7 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_process', defaultPerm: 'allow' },
   { name: 'write_process', defaultPerm: 'ask' },
   { name: 'stop_process', defaultPerm: 'allow' },
+  { name: 'run_subagent', defaultPerm: 'allow' },
 ];
 
 export function defaultToolPermissions(): Record<string, ToolPerm> {
@@ -454,6 +455,26 @@ export const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'run_subagent',
+      description:
+        'Delegate a focused sub-task to an autonomous SUB-AGENT that runs in its own fresh context with the same tools and returns a concise summary of what it did. Use it for self-contained chunks of work (research something across many files, implement + verify one module, generate a batch of files) to keep the main thread focused — the sub-agent does the messy intermediate steps and you only get the result. The sub-agent CANNOT spawn further sub-agents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          description: { type: 'string', description: 'A short label for the sub-task (a few words).' },
+          prompt: {
+            type: 'string',
+            description:
+              'Full, self-contained instructions for the sub-agent. It does NOT see this conversation, so include all needed context, file paths, and exactly what to deliver/return.',
+          },
+        },
+        required: ['description', 'prompt'],
+      },
+    },
+  },
 ];
 
 function isAbsolute(p: string): boolean {
@@ -848,6 +869,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Send input', detail: a.input || '' };
     case 'stop_process':
       return { title: 'Stop process', detail: a.session_id != null ? `session ${a.session_id}` : '' };
+    case 'run_subagent':
+      return { title: 'Sub-agent', detail: a.description || '' };
     default:
       return { title: tc.name, detail: tc.arguments || '' };
   }
