@@ -76,6 +76,56 @@ export async function writeExcel(p: string, sheets: { name?: string; rows: unkno
   return rows;
 }
 
+export type DocBlock =
+  | { type: 'heading'; text: string; level?: number }
+  | { type: 'paragraph'; text: string }
+  | { type: 'bullets'; items: string[] };
+
+/** Create a .docx from structured blocks (headings / paragraphs / bullet lists). */
+export async function writeWord(p: string, blocks: DocBlock[]): Promise<number> {
+  const { Document, Packer, Paragraph, HeadingLevel, TextRun } = await import('docx');
+  const levels = [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4];
+  const children: InstanceType<typeof Paragraph>[] = [];
+  for (const b of blocks || []) {
+    if (b.type === 'heading') {
+      children.push(new Paragraph({ text: b.text || '', heading: levels[Math.min(Math.max((b.level || 1) - 1, 0), 3)] }));
+    } else if (b.type === 'bullets') {
+      for (const it of b.items || []) children.push(new Paragraph({ text: String(it), bullet: { level: 0 } }));
+    } else {
+      children.push(new Paragraph({ children: [new TextRun(b.text || '')] }));
+    }
+  }
+  if (!children.length) children.push(new Paragraph({ children: [new TextRun('')] }));
+  const doc = new Document({ sections: [{ children }] });
+  await writeBytesBase64(p, await Packer.toBase64String(doc));
+  return (blocks || []).length;
+}
+
+/** Create a .pptx from a list of slides (title + bullets or body text). */
+export async function writePptx(
+  p: string,
+  slides: { title?: string; bullets?: string[]; text?: string }[],
+): Promise<number> {
+  const pptxgen = (await import('pptxgenjs')).default;
+  const pptx = new pptxgen();
+  pptx.layout = 'LAYOUT_WIDE';
+  let count = 0;
+  for (const s of slides || []) {
+    const slide = pptx.addSlide();
+    count++;
+    if (s.title) slide.addText(String(s.title), { x: 0.5, y: 0.3, w: 12.3, h: 1, fontSize: 30, bold: true });
+    const body = (s.bullets || []).length
+      ? (s.bullets as string[]).map((t) => ({ text: String(t), options: { bullet: true, breakLine: true } }))
+      : s.text
+        ? [{ text: String(s.text), options: {} }]
+        : [];
+    if (body.length) slide.addText(body as any, { x: 0.6, y: 1.6, w: 12.1, h: 5.5, fontSize: 18, valign: 'top' });
+  }
+  if (!count) pptx.addSlide();
+  await writeBytesBase64(p, (await pptx.write({ outputType: 'base64' })) as string);
+  return count;
+}
+
 /** Pull selected entries' raw XML out of an OOXML (zip) file, in order. */
 async function unzipEntries(file: string, likeGlob: string): Promise<{ name: string; xml: string }[]> {
   const ps = [
@@ -142,4 +192,34 @@ export async function readOffice(p: string): Promise<string> {
   if (ext === 'docx') return readDocx(p);
   if (ext === 'pptx') return readPptx(p);
   throw new Error(`Unsupported file type: .${ext} (supported: xlsx, xlsm, xls, csv, docx, pptx)`);
+}
+
+export function isOfficeFile(p: string): boolean {
+  return /\.(xlsx|xlsm|xls|csv|docx|pptx)$/i.test(p || '');
+}
+
+function escHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
+}
+
+/** Render an Office file as preview HTML: real tables for spreadsheets, readable text
+ *  (per slide for .pptx) for documents/decks. */
+export async function officePreviewHtml(p: string): Promise<string> {
+  const ext = (p.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
+    const b64 = await readBytesBase64(p);
+    const wb = XLSX.read(b64, { type: 'base64' });
+    return wb.SheetNames.map(
+      (n) => `<h3 class="o-sheet">${escHtml(n)}</h3>` + XLSX.utils.sheet_to_html(wb.Sheets[n], { editable: false }),
+    ).join('\n');
+  }
+  const text = await readOffice(p);
+  if (ext === 'pptx') {
+    // readPptx output is "# Slide N\n...": render each slide as a card.
+    const slides = text.split(/\n(?=# Slide )/).filter((s) => s.trim());
+    return slides
+      .map((s) => `<div class="o-slide"><pre>${escHtml(s.replace(/^# Slide \d+\n?/, ''))}</pre></div>`)
+      .join('\n');
+  }
+  return '<pre class="o-text">' + escHtml(text) + '</pre>';
 }

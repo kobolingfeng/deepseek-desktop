@@ -29,14 +29,14 @@ export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
 
 export interface FileChange {
   path: string;
-  kind: 'edit' | 'write' | 'excel';
+  kind: 'edit' | 'write' | 'excel' | 'doc';
   additions: number;
   deletions: number;
   diff: DiffRow[];
   ok: boolean;
 }
 
-const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel']);
+const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel', 'write_word', 'write_pptx']);
 
 /** Aggregate the file-mutating tool calls in a conversation into a change list. */
 export function extractChanges(messages: Message[]): FileChange[] {
@@ -60,7 +60,14 @@ export function extractChanges(messages: Message[]): FileChange[] {
       else if (tc.name === 'write_file') diff = lineDiff('', String(a.content ?? ''));
       out.push({
         path: a.path || '(unknown)',
-        kind: tc.name === 'edit_file' ? 'edit' : tc.name === 'write_file' ? 'write' : 'excel',
+        kind:
+          tc.name === 'edit_file'
+            ? 'edit'
+            : tc.name === 'write_file'
+              ? 'write'
+              : tc.name === 'write_excel'
+                ? 'excel'
+                : 'doc',
         // Count from the full diff; only the stored rows are capped for display.
         additions: diff.filter((r) => r.t === 'add').length,
         deletions: diff.filter((r) => r.t === 'del').length,

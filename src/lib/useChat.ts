@@ -1009,7 +1009,14 @@ export function useChat() {
               }
             }
           }
-          if (!isErr && (tc.name === 'edit_file' || tc.name === 'write_file' || tc.name === 'write_excel')) {
+          if (
+            !isErr &&
+            (tc.name === 'edit_file' ||
+              tc.name === 'write_file' ||
+              tc.name === 'write_excel' ||
+              tc.name === 'write_word' ||
+              tc.name === 'write_pptx')
+          ) {
             producedEdits = true;
           }
           conv.messages.push({
@@ -1114,30 +1121,36 @@ export function useChat() {
         notification.show('DeepSeek', body).catch(() => {});
       }
       // Auto-open the right panel when the active turn produced something to show.
+      // Scan this turn's messages (by timestamp, so it survives a mid-turn compaction).
+      // Priority: a created Office file → preview it; else a localhost URL → preview it;
+      // else any file edits → the changes tab.
       if (conv.id === activeIdRef.current && !turn.stopped) {
-        if (producedEdits) {
+        let officePath: string | undefined;
+        let url: string | undefined;
+        for (let i = conv.messages.length - 1; i >= 0; i--) {
+          const msg = conv.messages[i];
+          if ((msg.createdAt || 0) < startedAt) break;
+          if (!officePath && msg.role === 'tool') {
+            const om = (msg.content || '').match(/ to (.+\.(?:xlsx|xlsm|docx|pptx))\s*$/i);
+            if (om && !msg.isError) officePath = om[1];
+          }
+          if (!url) {
+            const mt = (msg.content || '').match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]"'`]*)?/i);
+            if (mt) url = mt[0].replace(/[.,;:!?)\]]+$/, '');
+          }
+          if (officePath && url) break;
+        }
+        if (officePath) {
+          setPreviewUrl(officePath);
+          setPanelTab('preview');
+          setPanelOpen(true);
+        } else if (url) {
+          setPreviewUrl(url);
+          setPanelTab('preview');
+          setPanelOpen(true);
+        } else if (producedEdits) {
           setPanelTab('changes');
           setPanelOpen(true);
-        } else {
-          // Scan the recent turn (assistant replies AND tool outputs, e.g. a dev-server
-          // banner) for a localhost URL and auto-open it in the preview pane.
-          // Scan this turn's messages (by timestamp, so it survives a mid-turn compaction
-          // that replaces the messages array) for a localhost URL.
-          let url: string | undefined;
-          for (let i = conv.messages.length - 1; i >= 0; i--) {
-            const msg = conv.messages[i];
-            if ((msg.createdAt || 0) < startedAt) break;
-            const mt = (msg.content || '').match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]"'`]*)?/i);
-            if (mt) {
-              url = mt[0].replace(/[.,;:!?)\]]+$/, ''); // drop trailing sentence punctuation
-              break;
-            }
-          }
-          if (url) {
-            setPreviewUrl(url);
-            setPanelTab('preview');
-            setPanelOpen(true);
-          }
         }
       }
       // Run the next queued message (typed while this turn ran) as a fresh turn.

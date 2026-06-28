@@ -165,6 +165,8 @@ export const DEFAULT_SETTINGS: Settings = {
     edit_file: 'ask',
     write_file: 'ask',
     write_excel: 'ask',
+    write_word: 'ask',
+    write_pptx: 'ask',
     run_command: 'ask',
     start_process: 'ask',
     write_process: 'ask',

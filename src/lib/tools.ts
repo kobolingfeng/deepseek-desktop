@@ -1,6 +1,6 @@
 // Built-in agent tools, executed against the native fs/shell/http APIs.
 import { fs, http, shell } from '../api';
-import { readOffice, writeExcel } from './office';
+import { readOffice, writeExcel, writeWord, writePptx } from './office';
 import type { Settings, ToolCall, ToolPerm } from './types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
@@ -18,6 +18,8 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'edit_file', defaultPerm: 'allow' },
   { name: 'write_file', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
+  { name: 'write_word', defaultPerm: 'allow' },
+  { name: 'write_pptx', defaultPerm: 'allow' },
   { name: 'run_command', defaultPerm: 'ask' },
   { name: 'start_process', defaultPerm: 'ask' },
   { name: 'read_process', defaultPerm: 'allow' },
@@ -49,7 +51,7 @@ export function isKnownTool(name: string): boolean {
 // which makes the composer show "Custom".
 // Codex-style presets: Read Only / Auto (default) / Full Access.
 export type ApprovalMode = 'read' | 'auto' | 'full';
-export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'run_command', 'start_process', 'write_process'];
+export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'write_word', 'write_pptx', 'run_command', 'start_process', 'write_process'];
 const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
 // Commands that execute/inject shell work — confirmed even in Auto (we have no sandbox).
 const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process'];
@@ -270,6 +272,62 @@ export const TOOL_SCHEMAS = [
           },
         },
         required: ['path', 'sheets'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_word',
+      description:
+        'Create or overwrite a Microsoft Word .docx document from structured blocks. Use this (not write_file) for .docx. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Destination .docx file path.' },
+          blocks: {
+            type: 'array',
+            description: 'Ordered document blocks.',
+            items: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['heading', 'paragraph', 'bullets'], description: 'Block kind.' },
+                text: { type: 'string', description: 'Text for a heading or paragraph.' },
+                level: { type: 'number', description: 'Heading level 1-4 (for type "heading").' },
+                items: { type: 'array', items: { type: 'string' }, description: 'Bullet items (for type "bullets").' },
+              },
+              required: ['type'],
+            },
+          },
+        },
+        required: ['path', 'blocks'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_pptx',
+      description:
+        'Create or overwrite a Microsoft PowerPoint .pptx deck from a list of slides. Use this (not write_file) for .pptx. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Destination .pptx file path.' },
+          slides: {
+            type: 'array',
+            description: 'Slides in order.',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', description: 'Slide title.' },
+                bullets: { type: 'array', items: { type: 'string' }, description: 'Bullet points for the slide body.' },
+                text: { type: 'string', description: 'Body text (used if no bullets).' },
+              },
+            },
+          },
+        },
+        required: ['path', 'slides'],
       },
     },
   },
@@ -724,6 +782,10 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Read document', detail: a.path || '' };
     case 'write_excel':
       return { title: 'Write Excel', detail: a.path || '' };
+    case 'write_word':
+      return { title: 'Write Word', detail: a.path || '' };
+    case 'write_pptx':
+      return { title: 'Write PowerPoint', detail: a.path || '' };
     case 'update_plan':
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'write_file':
@@ -905,6 +967,22 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       if (!sheets.length) throw new Error('sheets is required (array of { name, rows })');
       const rows = await writeExcel(p, sheets);
       return `Wrote ${sheets.length} sheet(s), ${rows} row(s) to ${p}`;
+    }
+    case 'write_word': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      const blocks = Array.isArray(args.blocks) ? args.blocks : [];
+      if (!blocks.length) throw new Error('blocks is required (array of { type, text, level, items })');
+      const n = await writeWord(p, blocks);
+      return `Wrote a Word document (${n} block(s)) to ${p}`;
+    }
+    case 'write_pptx': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      const slides = Array.isArray(args.slides) ? args.slides : [];
+      if (!slides.length) throw new Error('slides is required (array of { title, bullets, text })');
+      const n = await writePptx(p, slides);
+      return `Wrote a PowerPoint deck (${n} slide(s)) to ${p}`;
     }
     case 'run_command': {
       const cmd = String(args.command || '').trim();

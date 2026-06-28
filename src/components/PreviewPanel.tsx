@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Pencil, FileSpreadsheet, FilePlus, TriangleAlert, ExternalLink, RotateCw } from 'lucide-react';
+import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw } from 'lucide-react';
 import { shell } from '../api';
 import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
 import { isPrivateUrl } from '../lib/tools';
+import { isOfficeFile, officePreviewHtml } from '../lib/office';
 import type { ChatController } from '../lib/useChat';
 import type { Conversation } from '../lib/types';
 
@@ -77,6 +78,8 @@ function ChangesTab({ controller }: { controller: ChatController }) {
                   <Pencil size={13} strokeWidth={1.9} />
                 ) : c.kind === 'excel' ? (
                   <FileSpreadsheet size={13} strokeWidth={1.9} />
+                ) : c.kind === 'doc' ? (
+                  <FileText size={13} strokeWidth={1.9} />
                 ) : (
                   <FilePlus size={13} strokeWidth={1.9} />
                 )}
@@ -115,13 +118,39 @@ function PreviewTab({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const [url, setUrl] = useState(controller.previewUrl);
   const [src, setSrc] = useState(controller.previewUrl);
+  const [officeHtml, setOfficeHtml] = useState<string | null>(null);
+  const [officeErr, setOfficeErr] = useState('');
   useEffect(() => {
     setUrl(controller.previewUrl);
     setSrc(controller.previewUrl);
   }, [controller.previewUrl]);
+
+  const office = isOfficeFile(src);
+  // Load + render Office files (xlsx/docx/pptx) as HTML when the target is one.
+  useEffect(() => {
+    if (!office || !src) {
+      setOfficeHtml(null);
+      setOfficeErr('');
+      return;
+    }
+    let cancelled = false;
+    setOfficeHtml(null);
+    setOfficeErr('');
+    officePreviewHtml(src)
+      .then((html) => {
+        if (!cancelled) setOfficeHtml(html);
+      })
+      .catch((e) => {
+        if (!cancelled) setOfficeErr(e?.message || String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [office, src]);
+
   const go = () => {
     let u = url.trim();
-    if (u && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    if (u && !isOfficeFile(u) && !/^https?:\/\//i.test(u)) u = 'http://' + u;
     setSrc(u);
     controller.setPreviewUrl(u);
   };
@@ -130,6 +159,20 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     setSrc('');
     requestAnimationFrame(() => setSrc(cur));
   };
+
+  const officeDoc =
+    officeHtml == null
+      ? ''
+      : `<!doctype html><html><head><meta charset="utf-8"><style>
+  body{font:13px/1.55 system-ui,Segoe UI,sans-serif;color:#1a1a1a;background:#fff;margin:0;padding:16px;}
+  table{border-collapse:collapse;margin:0 0 18px;font-size:12px;}
+  td,th{border:1px solid #d4d4d4;padding:3px 8px;text-align:left;}
+  .o-sheet{margin:16px 0 6px;font-size:13px;font-weight:600;color:#333;}
+  .o-text{white-space:pre-wrap;font:13px/1.6 system-ui;margin:0;}
+  .o-slide{border:1px solid #e2e2e2;border-radius:8px;padding:14px 18px;margin:0 0 12px;box-shadow:0 1px 3px rgba(0,0,0,.06);}
+  .o-slide pre{white-space:pre-wrap;margin:0;font:13px/1.55 system-ui;}
+</style></head><body>${officeHtml}</body></html>`;
+
   return (
     <div className="preview-tab">
       <div className="preview-bar">
@@ -148,12 +191,24 @@ function PreviewTab({ controller }: { controller: ChatController }) {
         <button className="ghost" onClick={reload} title={t('panelReload')}>
           <RotateCw size={14} strokeWidth={1.9} />
         </button>
-        <button className="ghost" onClick={() => src && shell.open(src).catch(() => {})} title={t('panelOpenBrowser')}>
+        <button
+          className="ghost"
+          onClick={() => src && shell.open(src).catch(() => {})}
+          title={office ? t('panelOpenFile') : t('panelOpenBrowser')}
+        >
           <ExternalLink size={14} strokeWidth={1.9} />
         </button>
       </div>
       {!src ? (
         <div className="side-empty">{t('panelNoPreview')}</div>
+      ) : office ? (
+        officeErr ? (
+          <div className="side-empty">{officeErr}</div>
+        ) : officeHtml == null ? (
+          <div className="side-empty">{t('panelLoading')}</div>
+        ) : (
+          <iframe className="preview-frame" srcDoc={officeDoc} title="office preview" sandbox="" />
+        )
       ) : isPrivateUrl(src) ? (
         // Only preview local servers in-app: web-security is disabled, so a remote
         // page in this iframe could reach the native IPC bridge. Sandbox as defense.
