@@ -73,6 +73,9 @@ export interface Conversation {
   /** Name of the tool currently executing this turn (drives the "Searching the web…"
    *  style status indicator); transient, not persisted meaningfully. */
   activeTool?: string;
+  /** When the current turn started — drives a single continuous status timer that
+   *  doesn't reset when the label switches (Thinking ↔ Searching). Transient. */
+  turnStartedAt?: number;
   /** Messages typed while a turn was running — queued to send after it finishes. */
   queued?: { id: string; text: string }[];
 }

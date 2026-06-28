@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import { KeyRound, ListTodo, MessageSquare, Target } from 'lucide-react';
 import { Composer } from './Composer';
 import { Message } from './Message';
@@ -18,6 +18,23 @@ const TOOL_STATUS: Record<string, string> = {
   read_process: 'statusRunningTool',
   write_process: 'statusRunningTool',
 };
+
+// Single continuous status indicator for a turn: same element throughout, only the label
+// text changes (Thinking ↔ Searching…) and the seconds keep counting from `since`.
+function TurnStatus({ since, label }: { since: number; label: string }) {
+  const [, tick] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+  const s = Math.max(0, Math.round((Date.now() - since) / 1000));
+  return (
+    <div className="stream-meter">
+      <span className="stream-dot" />
+      {label} · {s}s
+    </div>
+  );
+}
 
 export function ChatView({
   controller,
@@ -146,14 +163,18 @@ export function ChatView({
             {visible.map((m) => (
               <Message key={m.id} message={m} toolResults={toolResults} />
             ))}
-            {/* Continuous status during a slow tool call (e.g. web search) so the
-                "Thinking…" indicator doesn't blink out and back while it runs. */}
-            {generating && activeConversation?.activeTool && TOOL_STATUS[activeConversation.activeTool] && (
-              <div className="tool-status">
-                <span className="stream-dot" />
-                {t(TOOL_STATUS[activeConversation.activeTool])}
-              </div>
-            )}
+            {/* ONE continuous status line for the whole turn: only the label text swaps
+                (Thinking ↔ Searching ↔ Running) and the timer keeps counting, so the
+                height never changes. Hidden while the model is streaming visible text. */}
+            {(() => {
+              if (!generating || !activeConversation) return null;
+              const at = activeConversation.activeTool;
+              const last = activeConversation.messages[activeConversation.messages.length - 1];
+              const writing = !!(last && last.role === 'assistant' && last.content);
+              if (!at && writing) return null;
+              const key = at ? TOOL_STATUS[at] || 'statusRunningTool' : 'thinking';
+              return <TurnStatus since={activeConversation.turnStartedAt ?? Date.now()} label={t(key)} />;
+            })()}
             {activeConversation?.queued?.map((q) => (
               <div key={q.id} className="queued-msg" title={t('queuedHint')}>
                 <span className="queued-tag">{t('queued')}</span>

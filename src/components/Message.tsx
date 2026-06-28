@@ -227,9 +227,10 @@ export function Message({
     }
   const changes = streaming ? [] : extractChanges(turn);
 
-  // If everything this step would show is hidden, drop the message so the
-  // transcript doesn't accumulate blank gaps from hidden-only steps.
-  if (!streaming && empty && changes.length === 0 && !message.error) return null;
+  // If everything this step would show is hidden, drop the message — including while
+  // streaming with no content yet: the turn-level status ("Thinking…/Searching…") in
+  // ChatView is the single indicator, so we don't render an empty bubble + meter here.
+  if (empty && changes.length === 0 && !message.error) return null;
 
   return (
     <div className="msg assistant">
@@ -243,9 +244,6 @@ export function Message({
         ))}
 
         {message.content && <Markdown text={message.content} highlight={!streaming} />}
-
-        {streaming && empty && <StreamingMeter since={message.createdAt} label={t('thinking')} />}
-        {streaming && !empty && message.content && <span className="caret" />}
 
         {message.error && (
           <div className="msg-error">

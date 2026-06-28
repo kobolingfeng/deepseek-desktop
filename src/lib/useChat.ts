@@ -752,8 +752,9 @@ export function useChat() {
     const turn = getTurn(conv.id);
     turn.stopped = false;
     runningIdsRef.current.add(conv.id);
-    bumpNow();
     const startedAt = Date.now();
+    conv.turnStartedAt = startedAt; // single continuous status timer for the whole turn
+    bumpNow();
     const cfg = settingsRef.current; // immutable snapshot for this turn
     const turnMcp = mcpRef.current; // MCP servers as of turn start
     // Snapshot the model for the whole turn; fall back if the provider no longer serves it.
@@ -1080,6 +1081,7 @@ export function useChat() {
     } finally {
       runningIdsRef.current.delete(conv.id);
       conv.activeTool = undefined;
+      conv.turnStartedAt = undefined;
       // Finished while the user is looking at another chat → mark it unread.
       if (conv.id !== activeIdRef.current && !turn.stopped) unreadIdsRef.current.add(conv.id);
       turn.cancel = null;
