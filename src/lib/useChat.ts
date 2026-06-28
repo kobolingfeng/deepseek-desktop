@@ -67,8 +67,15 @@ async function expandMentions(text: string, dir: string): Promise<{ path: string
   return out;
 }
 
-const MAX_TOOL_ITERS = 30; // per-turn runaway backstop (chat); Goal mode auto-continues across turns
-const GOAL_MAX_ITERS = 25;
+// Per-turn run loop (Codex-style): there is NO arbitrary "stop after N tool calls"
+// as the primary mechanism — a turn runs until the model stops calling tools.
+// Runaway is bounded by (a) token-based compaction and (b) the no-progress circuit
+// breaker below; MAX_TOOL_ITERS is only an absolute last-resort backstop.
+const MAX_TOOL_ITERS = 100;
+const GOAL_MAX_ITERS = 100;
+// Stop if this many consecutive tool rounds make no progress — all errored, or the
+// exact same call repeated. Catches a model spinning without false-stopping real work.
+const NO_PROGRESS_LIMIT = 6;
 let cancelSeq = 1;
 const nextCancelId = () => cancelSeq++;
 const PLAN_SYSTEM =
@@ -688,11 +695,11 @@ export function useChat() {
     // Effective working directory: per-conversation override, else the global one.
     const effCwd = conv.cwd || cfg.workingDir;
     const toolCfg: Settings = effCwd === cfg.workingDir ? cfg : { ...cfg, workingDir: effCwd };
-    let hitToolLimit = false;
+    let hitBackstop = false;
+    let stalled = false;
     let producedEdits = false;
 
     try {
-      await maybeCompact(conv, cfg);
       const projectCtx = await loadProjectContext(effCwd);
       const mode = cfg.agentMode || 'chat';
       const modeText = mode === 'plan' ? PLAN_SYSTEM : mode === 'goal' ? GOAL_SYSTEM : '';
@@ -706,9 +713,14 @@ export function useChat() {
           .join('\n\n'),
       };
       const maxIters = mode === 'goal' ? GOAL_MAX_ITERS : MAX_TOOL_ITERS;
+      let noProgress = 0;
+      let prevCallSig = '';
 
       for (let iter = 0; iter < maxIters; iter++) {
         if (stoppedRef.current) break;
+        // Re-check before every model request: tool outputs + goal continuations
+        // added during a long turn can push the context past the threshold.
+        await maybeCompact(conv, cfg);
 
         const asst: Message = {
           id: newId('a'),
@@ -797,6 +809,13 @@ export function useChat() {
               persist();
               break;
             }
+            // A pure-text continuation did no tool work — counts as no progress, so a
+            // goal that just talks in circles eventually trips the breaker below.
+            prevCallSig = '';
+            if (++noProgress >= NO_PROGRESS_LIMIT) {
+              stalled = true;
+              break;
+            }
             if (iter < maxIters - 1) {
               conv.messages.push({
                 id: newId('u'),
@@ -809,11 +828,14 @@ export function useChat() {
               persist();
               continue;
             }
+            // Goal reached the backstop without a completion marker — surface it.
+            hitBackstop = true;
           }
           break;
         }
 
         // Execute each requested tool, gating by permission.
+        let roundOk = 0;
         for (const tc of asst.toolCalls) {
           if (stoppedRef.current) break;
           let out = '';
@@ -904,6 +926,7 @@ export function useChat() {
             isError: isErr,
             createdAt: Date.now(),
           });
+          if (!isErr) roundOk++;
           bumpNow();
           persist();
         }
@@ -927,18 +950,36 @@ export function useChat() {
         persist();
 
         if (stoppedRef.current) break;
-        if (iter === maxIters - 1) hitToolLimit = true;
+
+        // No-progress circuit breaker: a tool round counts as progress only if at
+        // least one tool succeeded AND the call set isn't an exact repeat of the
+        // previous round. All-errored or identical-repeat rounds accumulate; enough
+        // in a row means the model is stuck (e.g. retrying a failing command).
+        const callSig = asst.toolCalls.map((tc) => tc.name + '' + (tc.arguments || '')).join('');
+        const madeProgress = roundOk > 0 && callSig !== prevCallSig;
+        prevCallSig = callSig;
+        noProgress = madeProgress ? 0 : noProgress + 1;
+        if (noProgress >= NO_PROGRESS_LIMIT) {
+          stalled = true;
+          break;
+        }
+        if (iter === maxIters - 1) hitBackstop = true;
       }
 
-      if (hitToolLimit && !stoppedRef.current) {
+      if ((stalled || hitBackstop) && !stoppedRef.current) {
+        const zh = cfg.language === 'zh';
+        const msg = stalled
+          ? zh
+            ? '已停止:连续多轮工具调用没有进展(重复操作或全部失败)。可以换个思路、补充信息,或发送"继续"重试。'
+            : 'Stopped: several tool rounds in a row made no progress (repeated or all-failing actions). Rephrase, add detail, or send "continue" to retry.'
+          : zh
+            ? `已执行 ${maxIters} 步(安全上限)后停止。发送"继续"可接着做;长任务建议用目标模式。`
+            : `Stopped after ${maxIters} steps (an absolute safety backstop). Send "continue" to resume; use Goal mode for long autonomous tasks.`;
         conv.messages.push({
           id: newId('e'),
           role: 'assistant',
           content: '',
-          error:
-            cfg.language === 'zh'
-              ? `已执行 ${maxIters} 步后暂停 —— 这是防止失控循环的安全上限,不是能力限制。发送"继续"即可接着做;长任务建议用目标模式(自动续跑直到完成)。`
-              : `Paused after ${maxIters} steps — a safety limit to prevent runaway loops, not a capability cap. Send "continue" to resume; for long autonomous tasks use Goal mode (it auto-continues until done).`,
+          error: msg,
           createdAt: Date.now(),
         });
         bumpNow();
