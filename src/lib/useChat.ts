@@ -227,8 +227,6 @@ export function useChat() {
   const convsRef = useRef<Conversation[]>(loadConversations());
   const [activeId, setActiveId] = useState<string | null>(convsRef.current[0]?.id ?? null);
   const [settings, setSettings] = useState<Settings>(loadSettings());
-  const [generating, setGenerating] = useState(false);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [statusOpen, setStatusOpen] = useState(false);
   const [mcpStatus, setMcpStatus] = useState<McpServerState[]>([]);
   const mcpRef = useRef<McpServerState[]>([]);
@@ -253,12 +251,26 @@ export function useChat() {
 
   const [, forceRender] = useReducer((x: number) => x + 1, 0);
   const rafRef = useRef<number | null>(null);
-  const cancelRef = useRef<(() => void) | null>(null);
-  const approvalResolver = useRef<((decision: boolean) => void) | null>(null);
-  const generatingRef = useRef(false);
-  const stoppedRef = useRef(false);
   const focusedRef = useRef(true);
-  const toolCancelRef = useRef<(() => void) | null>(null);
+  // Per-conversation turn state, so multiple chats can generate (and be stopped /
+  // approved) independently. The UI consumes the ACTIVE conversation's slice — see the
+  // `generating` / `pendingApproval` / `stop` / `approve` / `deny` exports below.
+  type TurnCtl = {
+    stopped: boolean;
+    cancel: (() => void) | null;
+    toolCancel: (() => void) | null;
+    approvalResolver: ((decision: boolean) => void) | null;
+    pendingApproval: PendingApproval | null;
+  };
+  const turnsRef = useRef<Map<string, TurnCtl>>(new Map());
+  const getTurn = (id: string): TurnCtl => {
+    let t = turnsRef.current.get(id);
+    if (!t) {
+      t = { stopped: false, cancel: null, toolCancel: null, approvalResolver: null, pendingApproval: null };
+      turnsRef.current.set(id, t);
+    }
+    return t;
+  };
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
   const runningIdsRef = useRef<Set<string>>(new Set()); // conversations currently generating
@@ -371,11 +383,12 @@ export function useChat() {
   }
 
   function deleteConversation(id: string) {
-    // If it's mid-turn, stop it first so the turn doesn't keep running (and auto-approved
-    // edits keep firing) invisibly after the conversation is gone.
-    if (runningIdsRef.current.has(id)) stop();
+    // If it's mid-turn, stop THAT conversation first so the turn doesn't keep running
+    // (and auto-approved edits keep firing) invisibly after the conversation is gone.
+    if (runningIdsRef.current.has(id)) stop(id);
     convsRef.current = convsRef.current.filter((c) => c.id !== id);
     runningIdsRef.current.delete(id);
+    turnsRef.current.delete(id);
     unreadIdsRef.current.delete(id); // don't leave a stuck taskbar badge
     if (activeId === id) setActiveId(convsRef.current[0]?.id ?? null);
     persist();
@@ -614,28 +627,36 @@ export function useChat() {
     saveSettings(next);
   }
 
-  // ── Approval gate ────────────────────────────────────
-  function requestApproval(tc: ToolCall): Promise<boolean> {
+  // ── Approval gate (per conversation) ─────────────────
+  function requestApproval(convId: string, tc: ToolCall): Promise<boolean> {
     const { title, detail } = describeTool(tc);
+    const turn = getTurn(convId);
     return new Promise((resolve) => {
-      approvalResolver.current = resolve;
-      setPendingApproval({ toolCall: tc, title, detail });
+      turn.approvalResolver = resolve;
+      turn.pendingApproval = { toolCall: tc, title, detail };
+      bumpNow(); // show the bar if this conversation is the active one
     });
   }
 
-  function resolveApproval(decision: boolean) {
-    const r = approvalResolver.current;
-    approvalResolver.current = null;
-    setPendingApproval(null);
+  function resolveApproval(convId: string, decision: boolean) {
+    const turn = turnsRef.current.get(convId);
+    if (!turn) return;
+    const r = turn.approvalResolver;
+    turn.approvalResolver = null;
+    turn.pendingApproval = null;
+    bumpNow();
     r?.(decision);
   }
 
-  // ── Generation control ───────────────────────────────
-  function stop() {
-    stoppedRef.current = true;
-    cancelRef.current?.();
-    toolCancelRef.current?.(); // kill an in-flight tool (shell process / fetch)
-    if (approvalResolver.current) resolveApproval(false);
+  // ── Generation control (per conversation) ────────────
+  function stop(id: string | null = activeIdRef.current) {
+    if (!id) return;
+    const turn = turnsRef.current.get(id);
+    if (!turn) return;
+    turn.stopped = true;
+    turn.cancel?.();
+    turn.toolCancel?.(); // kill an in-flight tool (shell process / fetch)
+    if (turn.approvalResolver) resolveApproval(id, false);
   }
 
   // Summarize older messages when the conversation gets long, to stay within
@@ -662,18 +683,19 @@ export function useChat() {
       },
       {},
     );
-    // Register the compaction stream so Stop cancels it too.
-    const prevCancel = cancelRef.current;
-    cancelRef.current = cancel;
+    // Register the compaction stream on this conversation's turn so Stop cancels it too.
+    const turn = getTurn(conv.id);
+    const prevCancel = turn.cancel;
+    turn.cancel = cancel;
     let summary = '';
     try {
       summary = (await promise).content;
     } catch {
       return; // compaction failed — keep the full history rather than lose it
     } finally {
-      if (cancelRef.current === cancel) cancelRef.current = prevCancel;
+      if (turn.cancel === cancel) turn.cancel = prevCancel;
     }
-    if (stoppedRef.current) return; // Stop pressed during compaction
+    if (turn.stopped) return; // Stop pressed during compaction
     if (!summary.trim()) return;
 
     const label =
@@ -694,18 +716,21 @@ export function useChat() {
 
   async function compactActive() {
     const conv = getActive();
-    if (!conv || generating) return;
-    setGenerating(true);
+    if (!conv || runningIdsRef.current.has(conv.id)) return;
+    getTurn(conv.id).stopped = false; // clear any prior Stop so compaction isn't skipped
+    runningIdsRef.current.add(conv.id);
+    bumpNow();
     try {
       await maybeCompact(conv, settingsRef.current, true);
     } finally {
-      setGenerating(false);
+      runningIdsRef.current.delete(conv.id);
+      bumpNow();
     }
   }
 
   async function runTurn(conv: Conversation) {
-    setGenerating(true);
-    stoppedRef.current = false;
+    const turn = getTurn(conv.id);
+    turn.stopped = false;
     runningIdsRef.current.add(conv.id);
     bumpNow();
     const startedAt = Date.now();
@@ -742,11 +767,11 @@ export function useChat() {
       let prevCallSig = '';
 
       for (let iter = 0; iter < maxIters; iter++) {
-        if (stoppedRef.current) break;
+        if (turn.stopped) break;
         // Re-check before every model request: tool outputs + goal continuations
         // added during a long turn can push the context past the threshold.
         await maybeCompact(conv, cfg);
-        if (stoppedRef.current) break; // Stop may have been pressed during compaction
+        if (turn.stopped) break; // Stop may have been pressed during compaction
 
         const asst: Message = {
           id: newId('a'),
@@ -792,13 +817,13 @@ export function useChat() {
             },
           },
         );
-        cancelRef.current = handle.cancel;
+        turn.cancel = handle.cancel;
 
         let result;
         try {
           result = await handle.promise;
         } finally {
-          cancelRef.current = null;
+          turn.cancel = null;
         }
 
         asst.pending = false;
@@ -814,7 +839,7 @@ export function useChat() {
         // Cancelled/stopped before executing tools: drop unexecuted tool calls so
         // we never persist assistant tool_calls without matching tool results
         // (which would make the next API request invalid).
-        if (result.cancelled || stoppedRef.current) {
+        if (result.cancelled || turn.stopped) {
           asst.toolCalls = undefined;
           bumpNow();
           persist();
@@ -828,7 +853,7 @@ export function useChat() {
           }
           // Goal mode: keep working until the model emits a completion/blocked
           // marker (after its completion audit) or we hit the cap.
-          if (mode === 'goal' && !result.cancelled && !stoppedRef.current) {
+          if (mode === 'goal' && !result.cancelled && !turn.stopped) {
             if (/<GOAL_(COMPLETE|BLOCKED)>/i.test(asst.content)) {
               asst.content = asst.content.replace(/<GOAL_(COMPLETE|BLOCKED)>/gi, '').trim();
               bumpNow();
@@ -863,7 +888,7 @@ export function useChat() {
         // Execute each requested tool, gating by permission.
         let roundOk = 0;
         for (const tc of asst.toolCalls) {
-          if (stoppedRef.current) break;
+          if (turn.stopped) break;
           let out = '';
           let isErr = false;
           if (tc.name === 'update_plan') {
@@ -887,7 +912,7 @@ export function useChat() {
               isErr = true;
             } else {
               const full = deriveApprovalMode(settingsRef.current.toolPermissions) === 'full';
-              const approved = full ? true : await requestApproval(tc);
+              const approved = full ? true : await requestApproval(conv.id, tc);
               if (!approved) {
                 out = 'User denied this action.';
                 isErr = true;
@@ -912,7 +937,7 @@ export function useChat() {
           } else {
             const perm = toolPerm(tc.name, settingsRef.current);
             let approved = true;
-            if (perm === 'ask') approved = await requestApproval(tc);
+            if (perm === 'ask') approved = await requestApproval(conv.id, tc);
             if (perm === 'off') {
               out = 'This tool is disabled by the user.';
               isErr = true;
@@ -922,7 +947,7 @@ export function useChat() {
             } else {
               const ctrl = new AbortController();
               const cancelId = nextCancelId();
-              toolCancelRef.current = () => {
+              turn.toolCancel = () => {
                 try {
                   ctrl.abort();
                 } catch {
@@ -936,7 +961,7 @@ export function useChat() {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;
               } finally {
-                toolCancelRef.current = null;
+                turn.toolCancel = null;
               }
             }
           }
@@ -975,7 +1000,7 @@ export function useChat() {
         bumpNow();
         persist();
 
-        if (stoppedRef.current) break;
+        if (turn.stopped) break;
 
         // No-progress circuit breaker: a tool round counts as progress only if at
         // least one tool succeeded AND the call set isn't an exact repeat of the
@@ -992,7 +1017,7 @@ export function useChat() {
         if (iter === maxIters - 1) hitBackstop = true;
       }
 
-      if ((stalled || hitBackstop) && !stoppedRef.current) {
+      if ((stalled || hitBackstop) && !turn.stopped) {
         const zh = cfg.language === 'zh';
         const msg = stalled
           ? zh
@@ -1029,21 +1054,21 @@ export function useChat() {
       bumpNow();
       persist();
     } finally {
-      generatingRef.current = false;
       runningIdsRef.current.delete(conv.id);
       // Finished while the user is looking at another chat → mark it unread.
-      if (conv.id !== activeIdRef.current && !stoppedRef.current) unreadIdsRef.current.add(conv.id);
-      setGenerating(false);
-      cancelRef.current = null;
-      approvalResolver.current = null;
-      setPendingApproval(null);
-      if (settingsRef.current.notifyOnDone && !focusedRef.current && !stoppedRef.current) {
+      if (conv.id !== activeIdRef.current && !turn.stopped) unreadIdsRef.current.add(conv.id);
+      turn.cancel = null;
+      turn.toolCancel = null;
+      turn.approvalResolver = null;
+      turn.pendingApproval = null;
+      bumpNow();
+      if (settingsRef.current.notifyOnDone && !focusedRef.current && !turn.stopped) {
         const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.content);
         const body = last?.content ? last.content.replace(/\s+/g, ' ').slice(0, 120) : 'Response ready';
         notification.show('DeepSeek', body).catch(() => {});
       }
       // Auto-open the right panel when the active turn produced something to show.
-      if (conv.id === activeIdRef.current && !stoppedRef.current) {
+      if (conv.id === activeIdRef.current && !turn.stopped) {
         if (producedEdits) {
           setPanelTab('changes');
           setPanelOpen(true);
@@ -1062,24 +1087,32 @@ export function useChat() {
 
   async function sendMessage(text: string) {
     const trimmed = text.trim();
-    if (generatingRef.current || !trimmed) return;
-    generatingRef.current = true;
+    if (!trimmed) return;
     let conv = getActive();
     if (!conv) conv = newConversation();
-
-    const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
-    const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
-    if (attachments.length) userMsg.attachments = attachments;
-    const firstMessage = conv.messages.length === 0;
-    conv.messages.push(userMsg);
-    // Lock the session type on the first message: agent if a working dir was set.
-    if (firstMessage) conv.type = conv.cwd ? 'agent' : 'chat';
-    if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(trimmed);
-    conv.updatedAt = Date.now();
-    persist();
+    // Per-conversation guard: block a double-send into the SAME chat, but allow another
+    // chat to be sent while this one runs. Lock immediately so the composer disables and
+    // there's no race during the async expandMentions.
+    if (runningIdsRef.current.has(conv.id)) return;
+    runningIdsRef.current.add(conv.id);
     bumpNow();
-
-    void runTurn(conv);
+    try {
+      const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
+      const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
+      if (attachments.length) userMsg.attachments = attachments;
+      const firstMessage = conv.messages.length === 0;
+      conv.messages.push(userMsg);
+      // Lock the session type on the first message: agent if a working dir was set.
+      if (firstMessage) conv.type = conv.cwd ? 'agent' : 'chat';
+      if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(trimmed);
+      conv.updatedAt = Date.now();
+      persist();
+      bumpNow();
+      void runTurn(conv); // re-adds to runningIds (idempotent); its finally removes it
+    } catch {
+      runningIdsRef.current.delete(conv.id);
+      bumpNow();
+    }
   }
 
   return {
@@ -1087,8 +1120,9 @@ export function useChat() {
     activeConversation: getActive(),
     activeId,
     settings,
-    generating,
-    pendingApproval,
+    // The active conversation's turn slice (the UI is single-conversation at a time).
+    generating: !!activeId && runningIdsRef.current.has(activeId),
+    pendingApproval: (activeId ? turnsRef.current.get(activeId)?.pendingApproval : null) ?? null,
     statusOpen,
     mcpStatus,
     groups,
@@ -1133,8 +1167,12 @@ export function useChat() {
     showStatus,
     setModel,
     updateSettings,
-    approve: () => resolveApproval(true),
-    deny: () => resolveApproval(false),
+    approve: () => {
+      if (activeId) resolveApproval(activeId, true);
+    },
+    deny: () => {
+      if (activeId) resolveApproval(activeId, false);
+    },
   };
 }
 
