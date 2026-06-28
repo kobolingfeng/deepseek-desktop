@@ -167,6 +167,7 @@ export const DEFAULT_SETTINGS: Settings = {
     write_excel: 'ask',
     write_word: 'ask',
     write_pptx: 'ask',
+    write_morph_pptx: 'ask',
     run_command: 'ask',
     start_process: 'ask',
     write_process: 'ask',

@@ -38,7 +38,7 @@ export interface FileChange {
   ok: boolean;
 }
 
-const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel', 'write_word', 'write_pptx']);
+const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel', 'write_word', 'write_pptx', 'write_morph_pptx']);
 
 /** Pull the resolved absolute path out of a write/edit tool result (executors return
  *  "… to <abs>" or "Edited <abs> (…)") so the UI can open the real file regardless of

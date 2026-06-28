@@ -61,14 +61,35 @@ async function readExcel(p: string): Promise<string> {
   return parts.join('\n\n') || '(empty workbook)';
 }
 
+/** A cell is a formula when it's `{ formula: "SUM(A1:A2)" }` or a string starting with "=". */
+function isFormulaCell(c: unknown): boolean {
+  return (
+    (!!c && typeof c === 'object' && typeof (c as { formula?: unknown }).formula === 'string') ||
+    (typeof c === 'string' && c.startsWith('=') && c.length > 1)
+  );
+}
+function formulaOf(c: unknown): string {
+  return typeof c === 'object' ? (c as { formula: string }).formula : (c as string).slice(1);
+}
+
 export async function writeExcel(p: string, sheets: { name?: string; rows: unknown[][] }[]): Promise<number> {
   const wb = XLSX.utils.book_new();
   let rows = 0;
   sheets.forEach((s, i) => {
-    const ws = XLSX.utils.aoa_to_sheet(Array.isArray(s.rows) ? s.rows : []);
+    const src = Array.isArray(s.rows) ? s.rows : [];
+    // Build the sheet from literal values (formula cells held as null), then overwrite
+    // each formula cell with a real SheetJS formula cell ({ t:'n', f:'…' }).
+    const plain = src.map((r) => (Array.isArray(r) ? r.map((c) => (isFormulaCell(c) ? null : c)) : r));
+    const ws = XLSX.utils.aoa_to_sheet(plain as unknown[][]);
+    src.forEach((r, ri) => {
+      if (!Array.isArray(r)) return;
+      r.forEach((c, ci) => {
+        if (isFormulaCell(c)) ws[XLSX.utils.encode_cell({ r: ri, c: ci })] = { t: 'n', f: formulaOf(c) };
+      });
+    });
     const nm = (s.name || `Sheet${i + 1}`).replace(/[\\/?*[\]:]/g, '').slice(0, 31) || `Sheet${i + 1}`;
     XLSX.utils.book_append_sheet(wb, ws, nm);
-    rows += Array.isArray(s.rows) ? s.rows.length : 0;
+    rows += src.length;
   });
   if (!wb.SheetNames.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([[]]), 'Sheet1');
   const b64 = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
@@ -123,6 +144,80 @@ export async function writePptx(
   }
   if (!count) pptx.addSlide();
   await writeBytesBase64(p, (await pptx.write({ outputType: 'base64' })) as string);
+  return count;
+}
+
+// PowerPoint Morph transition (2016+), with a Fallback fade for older clients. Injected
+// into each slide so advancing it smoothly morphs same-named objects from the prior slide.
+const MORPH_XML =
+  '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">' +
+  '<mc:Choice xmlns:p159="http://schemas.microsoft.com/office/powerpoint/2015/09/main" Requires="p159">' +
+  '<p:transition xmlns:p14="http://schemas.microsoft.com/office/powerpoint/2010/main" spd="slow" p14:dur="1200">' +
+  '<p159:morph option="byObject"/></p:transition></mc:Choice>' +
+  '<mc:Fallback><p:transition spd="slow"><p:fade/></p:transition></mc:Fallback></mc:AlternateContent>';
+
+export type MorphItem = {
+  /** Stable identity across frames — same name on consecutive frames → it morphs. */
+  name?: string;
+  text?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  fontSize?: number;
+  bold?: boolean;
+  color?: string;
+  fill?: string;
+  align?: 'left' | 'center' | 'right';
+};
+
+/** Create a Morph-animated .pptx. Each frame is a set of positioned items; items that share
+ *  a `name` across consecutive frames smoothly morph (move/resize/recolor) when PowerPoint
+ *  advances slides. Pure front-end: pptxgenjs builds the frames, then a real PowerPoint Morph
+ *  transition is injected into every slide after the first (no external engine). */
+export async function writeMorphPptx(p: string, frames: { items?: MorphItem[] }[]): Promise<number> {
+  const pptxgen = (await import('pptxgenjs')).default;
+  const JSZip = (await import('jszip')).default;
+  const pptx = new pptxgen();
+  pptx.layout = 'LAYOUT_WIDE';
+  let count = 0;
+  for (const frame of frames || []) {
+    const slide = pptx.addSlide();
+    count++;
+    for (const it of frame.items || []) {
+      const opts: Record<string, unknown> = {
+        objectName: it.name || undefined,
+        x: typeof it.x === 'number' ? it.x : 1,
+        y: typeof it.y === 'number' ? it.y : 1,
+        w: typeof it.w === 'number' ? it.w : 4,
+        h: typeof it.h === 'number' ? it.h : 1.2,
+        fontSize: it.fontSize || 24,
+        bold: !!it.bold,
+        align: it.align || 'center',
+        valign: 'middle',
+        color: it.color ? String(it.color).replace(/^#/, '') : undefined,
+      };
+      if (it.fill) opts.fill = { color: String(it.fill).replace(/^#/, '') };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      slide.addText(String(it.text ?? ''), opts as any);
+    }
+  }
+  if (!count) pptx.addSlide();
+  let b64 = (await pptx.write({ outputType: 'base64' })) as string;
+  // Inject the Morph transition into slides 2..N (the first frame has no incoming transition).
+  const zip = await JSZip.loadAsync(b64, { base64: true });
+  const slideXmls = Object.keys(zip.files)
+    .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a, b) => slideNo(a) - slideNo(b));
+  for (let i = 1; i < slideXmls.length; i++) {
+    const f = zip.file(slideXmls[i]);
+    if (!f) continue;
+    let xml = await f.async('string');
+    if (!xml.includes('p159:morph')) xml = xml.replace('</p:clrMapOvr></p:sld>', `</p:clrMapOvr>${MORPH_XML}</p:sld>`);
+    zip.file(slideXmls[i], xml);
+  }
+  b64 = await zip.generateAsync({ type: 'base64' });
+  await writeBytesBase64(p, b64);
   return count;
 }
 

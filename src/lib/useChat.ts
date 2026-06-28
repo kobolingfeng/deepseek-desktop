@@ -27,6 +27,7 @@ import {
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
+import { parseSkillCommand } from './skills';
 import {
   FALLBACK_MODEL_IDS,
   modelSupportsTools,
@@ -269,6 +270,8 @@ export function useChat() {
     toolCancel: (() => void) | null;
     approvalResolver: ((decision: boolean) => void) | null;
     pendingApproval: PendingApproval | null;
+    /** Domain-knowledge hint from a `/skill` command, injected into this turn's system prompt. */
+    skillHint?: string;
   };
   const turnsRef = useRef<Map<string, TurnCtl>>(new Map());
   const getTurn = (id: string): TurnCtl => {
@@ -795,7 +798,7 @@ export function useChat() {
       const previewHint = modelSupportsTools(turnModel) ? PREVIEW_HINT : '';
       const turnCfg: Settings = {
         ...cfg,
-        systemPrompt: [modeText, safety, linkHint, previewHint, globalMem, projectCtx, cfg.systemPrompt]
+        systemPrompt: [modeText, turn.skillHint, safety, linkHint, previewHint, globalMem, projectCtx, cfg.systemPrompt]
           .filter((s) => s && s.trim())
           .join('\n\n'),
       };
@@ -1020,7 +1023,8 @@ export function useChat() {
               tc.name === 'write_file' ||
               tc.name === 'write_excel' ||
               tc.name === 'write_word' ||
-              tc.name === 'write_pptx')
+              tc.name === 'write_pptx' ||
+              tc.name === 'write_morph_pptx')
           ) {
             producedEdits = true;
           }
@@ -1119,6 +1123,7 @@ export function useChat() {
       turn.toolCancel = null;
       turn.approvalResolver = null;
       turn.pendingApproval = null;
+      turn.skillHint = undefined;
       bumpNow();
       if (settingsRef.current.notifyOnDone && !focusedRef.current && !turn.stopped) {
         const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.content);
@@ -1172,10 +1177,15 @@ export function useChat() {
   async function beginTurn(conv: Conversation, trimmed: string) {
     const turn = getTurn(conv.id);
     turn.stopped = false;
+    // A leading "/skill-id <topic>" injects that skill's domain knowledge into this turn's
+    // system prompt; the visible message is just the topic.
+    const sk = parseSkillCommand(trimmed);
+    turn.skillHint = sk?.skill.hint;
+    const body = sk ? sk.rest : trimmed;
     runningIdsRef.current.add(conv.id);
     bumpNow();
     try {
-      const attachments = await expandMentions(trimmed, conv.cwd || settingsRef.current.workingDir);
+      const attachments = await expandMentions(body, conv.cwd || settingsRef.current.workingDir);
       // The user may have stopped or deleted the conversation during the async expand —
       // don't append the message or start the turn in that case.
       if (turn.stopped || !convsRef.current.some((c) => c.id === conv.id)) {
@@ -1183,13 +1193,13 @@ export function useChat() {
         bumpNow();
         return;
       }
-      const userMsg: Message = { id: newId('u'), role: 'user', content: trimmed, createdAt: Date.now() };
+      const userMsg: Message = { id: newId('u'), role: 'user', content: body, createdAt: Date.now() };
       if (attachments.length) userMsg.attachments = attachments;
       const firstMessage = conv.messages.length === 0;
       conv.messages.push(userMsg);
       // Lock the session type on the first message: agent if a working dir was set.
       if (firstMessage) conv.type = conv.cwd ? 'agent' : 'chat';
-      if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(trimmed);
+      if (!conv.title || conv.title === 'New chat') conv.title = titleFrom(body);
       conv.updatedAt = Date.now();
       persist();
       bumpNow();

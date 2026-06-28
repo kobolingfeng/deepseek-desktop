@@ -1,6 +1,6 @@
 // Built-in agent tools, executed against the native fs/shell/http APIs.
 import { fs, http, shell } from '../api';
-import { readOffice, writeExcel, writeWord, writePptx } from './office';
+import { readOffice, writeExcel, writeWord, writePptx, writeMorphPptx } from './office';
 import type { Settings, ToolCall, ToolPerm } from './types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
@@ -20,6 +20,7 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'write_excel', defaultPerm: 'allow' },
   { name: 'write_word', defaultPerm: 'allow' },
   { name: 'write_pptx', defaultPerm: 'allow' },
+  { name: 'write_morph_pptx', defaultPerm: 'allow' },
   { name: 'run_command', defaultPerm: 'ask' },
   { name: 'start_process', defaultPerm: 'ask' },
   { name: 'read_process', defaultPerm: 'allow' },
@@ -51,7 +52,7 @@ export function isKnownTool(name: string): boolean {
 // which makes the composer show "Custom".
 // Codex-style presets: Read Only / Auto (default) / Full Access.
 export type ApprovalMode = 'read' | 'auto' | 'full';
-export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'write_word', 'write_pptx', 'run_command', 'start_process', 'write_process'];
+export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'write_word', 'write_pptx', 'write_morph_pptx', 'run_command', 'start_process', 'write_process'];
 const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
 // Commands that execute/inject shell work — confirmed even in Auto (we have no sandbox).
 const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process'];
@@ -249,7 +250,7 @@ export const TOOL_SCHEMAS = [
     function: {
       name: 'write_excel',
       description:
-        'Create or overwrite an Excel .xlsx workbook. Provide one or more sheets; each sheet has rows, where each row is an array of cell values (strings or numbers); the first row is typically headers. Requires user approval.',
+        'Create or overwrite an Excel .xlsx workbook. Provide one or more sheets; each sheet has rows, where each row is an array of cell values (strings or numbers); the first row is typically headers. A cell may be a FORMULA — pass either a string starting with "=" (e.g. "=B2*C2", "=SUM(B2:B10)") or an object {"formula":"SUM(B2:B10)"}; Excel evaluates it on open, so use formulas for any computed cell (totals, growth, ratios) rather than hard-coding the result. Requires user approval.',
       parameters: {
         type: 'object',
         properties: {
@@ -263,7 +264,8 @@ export const TOOL_SCHEMAS = [
                 name: { type: 'string', description: 'Sheet name.' },
                 rows: {
                   type: 'array',
-                  description: 'Array of rows; each row is an array of cell values.',
+                  description:
+                    'Array of rows; each row is an array of cell values (string/number, or a formula like "=A2+B2").',
                   items: { type: 'array', items: {} },
                 },
               },
@@ -328,6 +330,50 @@ export const TOOL_SCHEMAS = [
           },
         },
         required: ['path', 'slides'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_morph_pptx',
+      description:
+        'Create a Morph-animated PowerPoint .pptx. Each "frame" is a slide holding positioned text items; an item that keeps the SAME "name" on consecutive frames smoothly morphs (moves/resizes/recolors) when the slide advances — use for cinematic animated decks (a word that flies across, a box that grows, a number re-typed to "count up"). Coordinates are inches on a 13.33×7.5 widescreen slide. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Destination .pptx file path.' },
+          frames: {
+            type: 'array',
+            description: 'Frames (slides) in order. Reuse item names across frames to morph them.',
+            items: {
+              type: 'object',
+              properties: {
+                items: {
+                  type: 'array',
+                  description: 'Positioned text items on this frame.',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string', description: 'Stable id; the same name on the next frame morphs it.' },
+                      text: { type: 'string', description: 'Item text.' },
+                      x: { type: 'number', description: 'Left in inches (0–13.33).' },
+                      y: { type: 'number', description: 'Top in inches (0–7.5).' },
+                      w: { type: 'number', description: 'Width in inches.' },
+                      h: { type: 'number', description: 'Height in inches.' },
+                      fontSize: { type: 'number', description: 'Font size in pt.' },
+                      bold: { type: 'boolean' },
+                      color: { type: 'string', description: 'Text color hex, e.g. "FFFFFF".' },
+                      fill: { type: 'string', description: 'Background fill hex, e.g. "4472C4".' },
+                      align: { type: 'string', enum: ['left', 'center', 'right'] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        required: ['path', 'frames'],
       },
     },
   },
@@ -786,6 +832,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Write Word', detail: a.path || '' };
     case 'write_pptx':
       return { title: 'Write PowerPoint', detail: a.path || '' };
+    case 'write_morph_pptx':
+      return { title: 'Write Morph PPT', detail: a.path || '' };
     case 'update_plan':
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'write_file':
@@ -983,6 +1031,14 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       if (!slides.length) throw new Error('slides is required (array of { title, bullets, text })');
       const n = await writePptx(p, slides);
       return `Wrote a PowerPoint deck (${n} slide(s)) to ${p}`;
+    }
+    case 'write_morph_pptx': {
+      const p = resolvePath(args.path, settings.workingDir);
+      if (!p) throw new Error('path is required');
+      const frames = Array.isArray(args.frames) ? args.frames : [];
+      if (!frames.length) throw new Error('frames is required (array of { items: [...] })');
+      const n = await writeMorphPptx(p, frames);
+      return `Wrote a Morph-animated PowerPoint deck (${n} frame(s)) to ${p}`;
     }
     case 'run_command': {
       const cmd = String(args.command || '').trim();

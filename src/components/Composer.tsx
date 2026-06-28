@@ -5,6 +5,7 @@ import { useI18n } from '../lib/i18n';
 import { CONTEXT_LABEL } from '../lib/deepseek';
 import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
 import { approvalModePerms, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
+import { BUILTIN_SKILLS } from '../lib/skills';
 import type { ChatController } from '../lib/useChat';
 
 function BarMenu({
@@ -192,6 +193,14 @@ export function Composer({
         }
       },
     },
+    ...BUILTIN_SKILLS.map((s) => ({
+      cmd: s.id,
+      label:
+        (controller.settings.language === 'zh' ? s.name.zh : s.name.en) +
+        ' · ' +
+        (controller.settings.language === 'zh' ? s.desc.zh : s.desc.en),
+      insert: '/' + s.id + ' ',
+    })),
     ...(controller.settings.customCommands || [])
       .filter((c) => c.name.trim() && c.prompt.trim())
       .map((c) => ({
