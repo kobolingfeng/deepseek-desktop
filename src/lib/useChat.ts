@@ -24,10 +24,12 @@ import {
   executeTool,
   isKnownTool,
   isPrivateUrl,
+  resolvePath,
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
 import { parseSkillCommand } from './skills';
+import { isOfficeFile, readBytesBase64, writeBytesBase64 } from './office';
 import {
   FALLBACK_MODEL_IDS,
   modelSupportsTools,
@@ -49,6 +51,20 @@ function pickProfile(s: Settings): Profile {
     approvalMode: s.approvalMode,
   };
 }
+
+// ── Checkpoints (per-turn file snapshots → one-click undo) ──────────────────────
+// Tools that mutate a file at args.path. Before the first time a turn touches a given
+// file, we snapshot its prior content so the whole turn's edits can be reverted.
+const EDIT_FILE_TOOLS = new Set([
+  'edit_file',
+  'write_file',
+  'write_excel',
+  'write_word',
+  'write_pptx',
+  'write_morph_pptx',
+]);
+type FileSnapshot = { path: string; existed: boolean; text?: string; b64?: string };
+type Checkpoint = { id: string; createdAt: number; label: string; files: Map<string, FileSnapshot> };
 
 /** Read files referenced as @path in a message, relative to the working dir. */
 async function expandMentions(text: string, dir: string): Promise<{ path: string; content: string }[]> {
@@ -288,6 +304,9 @@ export function useChat() {
   const unreadIdsRef = useRef<Set<string>>(new Set()); // finished while not active → unread
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  // Per-conversation undo stack of turn checkpoints (in-memory; not persisted — covers the
+  // "the agent just broke something, undo it" case within the session).
+  const checkpointsRef = useRef<Map<string, Checkpoint[]>>(new Map());
 
   useEffect(() => {
     const offF = win.onFocus(() => (focusedRef.current = true));
@@ -413,6 +432,7 @@ export function useChat() {
     convsRef.current = convsRef.current.filter((c) => c.id !== id);
     runningIdsRef.current.delete(id);
     turnsRef.current.delete(id);
+    checkpointsRef.current.delete(id); // drop its undo stack (no UI entry once gone)
     unreadIdsRef.current.delete(id); // don't leave a stuck taskbar badge
     if (activeId === id) setActiveId(convsRef.current[0]?.id ?? null);
     persist();
@@ -766,6 +786,51 @@ export function useChat() {
     }
   }
 
+  /** Snapshot a file's prior content into the turn's checkpoint, the first time the turn
+   *  edits it. Records existed:false for new files (revert = delete). */
+  async function snapshotEdit(cp: Checkpoint, tc: { arguments: string }, cwd: string) {
+    let path: string | undefined;
+    try {
+      path = JSON.parse(tc.arguments || '{}').path;
+    } catch {
+      /* unparsable args — nothing to snapshot */
+    }
+    if (!path) return;
+    const abs = resolvePath(path, cwd);
+    if (!abs || cp.files.has(abs)) return;
+    try {
+      if (!(await fs.exists(abs))) {
+        cp.files.set(abs, { path: abs, existed: false });
+        return;
+      }
+      if (isOfficeFile(abs)) cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
+      else cp.files.set(abs, { path: abs, existed: true, text: await fs.readTextFile(abs) });
+    } catch {
+      /* unreadable (e.g. too big / binary non-office) — skip; revert will skip it too */
+    }
+  }
+
+  /** Pop the most recent checkpoint for a conversation and restore its files. */
+  async function undoLastCheckpoint(convId: string): Promise<number> {
+    const arr = checkpointsRef.current.get(convId);
+    if (!arr || !arr.length) return 0;
+    const cp = arr.pop();
+    if (!cp) return 0;
+    let n = 0;
+    for (const s of cp.files.values()) {
+      try {
+        if (!s.existed) await fs.remove(s.path);
+        else if (s.b64 != null) await writeBytesBase64(s.path, s.b64);
+        else await fs.writeTextFile(s.path, s.text ?? '');
+        n++;
+      } catch {
+        /* ignore a single file that can't be restored */
+      }
+    }
+    bumpNow();
+    return n;
+  }
+
   async function runTurn(conv: Conversation) {
     const turn = getTurn(conv.id);
     turn.stopped = false;
@@ -784,6 +849,15 @@ export function useChat() {
     // Effective working directory: per-conversation override, else the global one.
     const effCwd = conv.cwd || cfg.workingDir;
     const toolCfg: Settings = effCwd === cfg.workingDir ? cfg : { ...cfg, workingDir: effCwd };
+    // This turn's checkpoint — files are snapshotted before their first edit (below).
+    const checkpoint: Checkpoint = {
+      id: newId('cp'),
+      createdAt: startedAt,
+      label: ([...conv.messages].reverse().find((m) => m.role === 'user')?.content || '')
+        .replace(/\s+/g, ' ')
+        .slice(0, 48),
+      files: new Map(),
+    };
     let hitBackstop = false;
     let stalled = false;
     let producedEdits = false;
@@ -1005,6 +1079,8 @@ export function useChat() {
               };
               conv.activeTool = tc.name; // drives the continuous "Searching the web…" indicator
               bumpNow();
+              // Snapshot the target file before an edit tool first changes it this turn.
+              if (EDIT_FILE_TOOLS.has(tc.name)) await snapshotEdit(checkpoint, tc, effCwd);
               try {
                 out = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
               } catch (e: any) {
@@ -1124,6 +1200,12 @@ export function useChat() {
       turn.approvalResolver = null;
       turn.pendingApproval = null;
       turn.skillHint = undefined;
+      // Keep the turn's checkpoint (its file snapshots) so the user can undo this turn's edits.
+      if (checkpoint.files.size > 0) {
+        const arr = checkpointsRef.current.get(conv.id) || [];
+        arr.push(checkpoint);
+        checkpointsRef.current.set(conv.id, arr);
+      }
       bumpNow();
       if (settingsRef.current.notifyOnDone && !focusedRef.current && !turn.stopped) {
         const last = [...conv.messages].reverse().find((m) => m.role === 'assistant' && m.content);
@@ -1254,7 +1336,10 @@ export function useChat() {
     panelWidth,
     previewUrl,
     previewNonce,
+    undoCount: checkpointsRef.current.get(activeId ?? '')?.length || 0,
+    undoLabel: (checkpointsRef.current.get(activeId ?? '')?.at(-1)?.label || '').trim(),
     // actions
+    undoLast: () => undoLastCheckpoint(activeIdRef.current ?? ''),
     openPanel,
     closePanel,
     togglePanel,

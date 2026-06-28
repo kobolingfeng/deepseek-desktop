@@ -14,7 +14,7 @@ async function tempPath(ext: string): Promise<string> {
 }
 
 /** Read a binary file as base64 (staged through a temp file to dodge stdout limits). */
-async function readBytesBase64(p: string): Promise<string> {
+export async function readBytesBase64(p: string): Promise<string> {
   const tmp = await tempPath('.b64');
   try {
     const ps = `[IO.File]::WriteAllText(${psQuote(tmp)}, [Convert]::ToBase64String([IO.File]::ReadAllBytes(${psQuote(p)})))`;
@@ -27,7 +27,7 @@ async function readBytesBase64(p: string): Promise<string> {
 }
 
 /** Write base64 bytes to a binary file (base64 staged in a temp text file). */
-async function writeBytesBase64(p: string, b64: string): Promise<void> {
+export async function writeBytesBase64(p: string, b64: string): Promise<void> {
   const tmp = await tempPath('.b64');
   await fs.writeTextFile(tmp, b64);
   const ps = `[IO.File]::WriteAllBytes(${psQuote(p)}, [Convert]::FromBase64String([IO.File]::ReadAllText(${psQuote(tmp)})))`;

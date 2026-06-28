@@ -483,7 +483,7 @@ export function isPrivateUrl(u: string): boolean {
   }
 }
 
-function resolvePath(p: string, base: string): string {
+export function resolvePath(p: string, base: string): string {
   const t = (p || '').trim();
   if (!base || isAbsolute(t)) return t;
   return base.replace(/[\\/]+$/, '') + '\\' + t.replace(/^[\\/]+/, '');

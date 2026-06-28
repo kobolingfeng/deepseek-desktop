@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw } from 'lucide-react';
+import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw, Undo2 } from 'lucide-react';
 import { shell } from '../api';
 import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
@@ -67,6 +67,12 @@ function ChangesTab({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const changes = extractChanges(controller.activeConversation?.messages ?? []);
   const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [undid, setUndid] = useState<number | null>(null);
+  const doUndo = async () => {
+    const n = await controller.undoLast();
+    setUndid(n);
+    window.setTimeout(() => setUndid(null), 2500);
+  };
   const base = controller.activeConversation?.cwd || controller.settings.workingDir;
   const resolve = (p: string) =>
     /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')
@@ -74,15 +80,26 @@ function ChangesTab({ controller }: { controller: ChatController }) {
       : base
         ? base.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '').replace(/\//g, '\\')
         : p;
-  if (!changes.length) return <div className="side-empty">{t('panelNoChanges')}</div>;
+  if (!changes.length && !controller.undoCount) return <div className="side-empty">{t('panelNoChanges')}</div>;
   const totA = changes.reduce((s, c) => s + c.additions, 0);
   const totD = changes.reduce((s, c) => s + c.deletions, 0);
   return (
     <div className="changes">
-      <div className="changes-sum">
-        {t('panelEditedN', { n: String(changes.length) })} <span className="diff-add">+{totA}</span>{' '}
-        <span className="diff-del">-{totD}</span>
-      </div>
+      {controller.undoCount > 0 && (
+        <div className="undo-bar">
+          <button className="undo-btn" onClick={doUndo} title={controller.undoLabel || undefined}>
+            <Undo2 size={13} strokeWidth={1.9} />
+            <span>{t('panelUndo')}</span>
+          </button>
+          {undid != null && <span className="undo-done">{t('panelUndone', { n: String(undid) })}</span>}
+        </div>
+      )}
+      {changes.length > 0 && (
+        <div className="changes-sum">
+          {t('panelEditedN', { n: String(changes.length) })} <span className="diff-add">+{totA}</span>{' '}
+          <span className="diff-del">-{totD}</span>
+        </div>
+      )}
       {changes.map((c, i) => (
         <div className="change-file" key={i}>
           <div className="change-row">

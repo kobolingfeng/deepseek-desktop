@@ -160,6 +160,31 @@
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
+.undo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 6px;
+}
+.undo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  transition: background var(--dur-1), color var(--dur-1);
+}
+.undo-btn:hover {
+  color: var(--text-primary);
+  background: var(--accent-soft);
+}
+.undo-done {
+  font-size: var(--text-xs, 11px);
+  color: var(--text-tertiary);
+}
 .change-file {
   border-radius: var(--radius-sm);
   overflow: hidden;
