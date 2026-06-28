@@ -14,13 +14,15 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
   return (
     <div className="todo-panel">
       <div className={`todo-collapse ${open ? 'open' : ''}`}>
-        <div className="todo-body">
-          {todos.map((it, i) => (
-            <div key={i} className={`todo-item ${it.status}`}>
-              <span className="todo-mark">{MARK[it.status] ?? '○'}</span>
-              <span className="todo-text">{it.text}</span>
-            </div>
-          ))}
+        <div className="todo-collapse-inner">
+          <div className="todo-body">
+            {todos.map((it, i) => (
+              <div key={i} className={`todo-item ${it.status}`}>
+                <span className="todo-mark">{MARK[it.status] ?? '○'}</span>
+                <span className="todo-text">{it.text}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
       <button className="todo-head" onClick={() => setOpen((o) => !o)}>

@@ -166,7 +166,7 @@
   grid-template-rows: 1fr;
 }
 .conv-collapse-inner,
-.todo-collapse > .todo-body {
+.todo-collapse-inner {
   overflow: hidden;
   min-height: 0;
 }
