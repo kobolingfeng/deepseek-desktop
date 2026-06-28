@@ -1,6 +1,7 @@
 // Persistence via WebView2's localStorage (survives in the app's user data dir).
 import type { Conversation, Group, Profile, Settings } from './types';
 import { DEFAULT_SETTINGS } from './types';
+import { deriveApprovalMode } from './tools';
 
 const CONV_KEY = 'deepseek.conversations';
 const SETTINGS_KEY = 'deepseek.settings';
@@ -84,7 +85,15 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
-    const s = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as Settings;
+    const parsed = JSON.parse(raw);
+    const s = { ...DEFAULT_SETTINGS, ...parsed } as Settings;
+    // Migrate to the explicit approvalMode: if older storage didn't have it, infer from
+    // the saved per-tool perms (so the user keeps their effective mode); never 'custom'.
+    if (!parsed.approvalMode) {
+      const d = deriveApprovalMode(s.toolPermissions);
+      s.approvalMode = d === 'custom' ? 'read' : d;
+    }
+    if (s.approvalMode !== 'read' && s.approvalMode !== 'auto' && s.approvalMode !== 'full') s.approvalMode = 'read';
     // Coerce critical fields so malformed/old storage can't crash render paths.
     if (typeof s.temperature !== 'number' || Number.isNaN(s.temperature)) s.temperature = DEFAULT_SETTINGS.temperature;
     if (!Array.isArray(s.mcpServers)) s.mcpServers = [];

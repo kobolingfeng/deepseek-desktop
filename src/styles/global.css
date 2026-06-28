@@ -295,6 +295,31 @@ textarea {
   color: var(--text-tertiary);
   padding: var(--space-3) var(--space-2) var(--space-1);
 }
+/* Project (working-dir) sub-group: a folder header with its conversations under it. */
+.conv-project {
+  margin-bottom: 2px;
+}
+.conv-project-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.conv-project-head svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+.conv-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Conversations nested under a project read as indented children of the folder. */
+.conv-project .conv-item {
+  padding-left: calc(var(--space-2) + 16px);
+}
 .conv-ico {
   color: var(--text-tertiary);
   flex-shrink: 0;
@@ -781,6 +806,52 @@ textarea {
   border-radius: 50%;
   background: var(--accent);
   animation: pulse 1s ease-in-out infinite;
+}
+/* Continuous turn-level status (web search etc.) — same look as the streaming meter. */
+.tool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  padding: 4px 0;
+}
+/* Queued user messages (typed while a turn was running). */
+.queued-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle, transparent);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+.queued-tag {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.queued-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queued-cancel {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+.queued-cancel:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
 }
 .msg-error {
   margin-top: var(--space-2);

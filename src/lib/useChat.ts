@@ -657,6 +657,13 @@ export function useChat() {
     turn.cancel?.();
     turn.toolCancel?.(); // kill an in-flight tool (shell process / fetch)
     if (turn.approvalResolver) resolveApproval(id, false);
+    // Stopping also drops anything queued for this conversation.
+    const conv = convsRef.current.find((c) => c.id === id);
+    if (conv?.queued?.length) {
+      conv.queued = [];
+      persist();
+    }
+    bumpNow();
   }
 
   // Summarize older messages when the conversation gets long, to stay within
@@ -955,6 +962,8 @@ export function useChat() {
                 }
                 shell.runCancel(cancelId).catch(() => {});
               };
+              conv.activeTool = tc.name; // drives the continuous "Searching the web…" indicator
+              bumpNow();
               try {
                 out = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
               } catch (e: any) {
@@ -962,6 +971,8 @@ export function useChat() {
                 isErr = true;
               } finally {
                 turn.toolCancel = null;
+                conv.activeTool = undefined;
+                bumpNow();
               }
             }
           }
@@ -1055,6 +1066,7 @@ export function useChat() {
       persist();
     } finally {
       runningIdsRef.current.delete(conv.id);
+      conv.activeTool = undefined;
       // Finished while the user is looking at another chat → mark it unread.
       if (conv.id !== activeIdRef.current && !turn.stopped) unreadIdsRef.current.add(conv.id);
       turn.cancel = null;
@@ -1082,18 +1094,18 @@ export function useChat() {
           }
         }
       }
+      // Run the next queued message (typed while this turn ran) as a fresh turn.
+      if (!turn.stopped && conv.queued && conv.queued.length) {
+        const next = conv.queued.shift();
+        bumpNow();
+        if (next) void beginTurn(conv, next.text);
+      }
     }
   }
 
-  async function sendMessage(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    let conv = getActive();
-    if (!conv) conv = newConversation();
-    // Per-conversation guard: block a double-send into the SAME chat, but allow another
-    // chat to be sent while this one runs. Lock immediately so the composer disables and
-    // there's no race during the async expandMentions.
-    if (runningIdsRef.current.has(conv.id)) return;
+  // Push the user message and start the turn. Locks runningIds before the async
+  // expandMentions so the composer state updates immediately and there's no race.
+  async function beginTurn(conv: Conversation, trimmed: string) {
     runningIdsRef.current.add(conv.id);
     bumpNow();
     try {
@@ -1113,6 +1125,30 @@ export function useChat() {
       runningIdsRef.current.delete(conv.id);
       bumpNow();
     }
+  }
+
+  async function sendMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    let conv = getActive();
+    if (!conv) conv = newConversation();
+    // If the conversation is mid-turn, QUEUE the message to run after it finishes
+    // (Codex-style) rather than blocking the composer.
+    if (runningIdsRef.current.has(conv.id)) {
+      (conv.queued ||= []).push({ id: newId('q'), text: trimmed });
+      persist();
+      bumpNow();
+      return;
+    }
+    await beginTurn(conv, trimmed);
+  }
+
+  function cancelQueued(convId: string, queuedId: string) {
+    const conv = convsRef.current.find((c) => c.id === convId);
+    if (!conv?.queued) return;
+    conv.queued = conv.queued.filter((q) => q.id !== queuedId);
+    persist();
+    bumpNow();
   }
 
   return {
@@ -1160,6 +1196,7 @@ export function useChat() {
     setConvCwd,
     clearConvCwd,
     duplicateConversation,
+    cancelQueued,
     exportConversation,
     clearActive,
     compactActive,

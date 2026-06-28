@@ -30,6 +30,8 @@ const en: Dict = {
   groupWeek: 'Previous 7 days',
   groupOlder: 'Older',
   groupPinned: 'Pinned',
+  groupProjects: 'Projects',
+  groupChats: 'Chats',
   rename: 'Rename',
   pin: 'Pin',
   unpin: 'Unpin',
@@ -173,6 +175,11 @@ const en: Dict = {
   approvalNote: 'The assistant wants to act on your machine.',
 
   thinking: 'Thinking…',
+  statusSearching: 'Searching the web…',
+  statusReading: 'Reading page…',
+  statusRunningTool: 'Running…',
+  queued: 'Queued',
+  queuedHint: 'Will be sent after the current turn finishes',
   thoughtProcess: 'Thought process',
 
   tool_read_file: 'Read file',
@@ -265,6 +272,8 @@ const zh: Dict = {
   groupWeek: '前 7 天',
   groupOlder: '更早',
   groupPinned: '置顶',
+  groupProjects: '项目',
+  groupChats: '对话',
   rename: '重命名',
   pin: '置顶',
   unpin: '取消置顶',
@@ -407,6 +416,11 @@ const zh: Dict = {
   approvalNote: '助手想要在你的电脑上执行操作。',
 
   thinking: '思考中…',
+  statusSearching: '联网搜索中…',
+  statusReading: '读取网页中…',
+  statusRunningTool: '运行中…',
+  queued: '排队中',
+  queuedHint: '将在当前回合结束后发送',
   thoughtProcess: '思考过程',
 
   tool_read_file: '读取文件',

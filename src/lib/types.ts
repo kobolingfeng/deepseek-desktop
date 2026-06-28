@@ -70,6 +70,11 @@ export interface Conversation {
   /** Session type, locked when the first message is sent: 'agent' if a working
    *  directory (project) was chosen, otherwise 'chat'. */
   type?: 'chat' | 'agent';
+  /** Name of the tool currently executing this turn (drives the "Searching the web…"
+   *  style status indicator); transient, not persisted meaningfully. */
+  activeTool?: string;
+  /** Messages typed while a turn was running — queued to send after it finishes. */
+  queued?: { id: string; text: string }[];
 }
 
 /** A conversation is an "agent" session (has a project working dir) vs a plain chat. */
@@ -100,6 +105,8 @@ export interface Settings {
   workingDir: string;
   /** Per-tool permissions (keyed by tool name). */
   toolPermissions: Record<string, ToolPerm>;
+  /** Quick approval preset shown in the composer chip (source of truth for it). */
+  approvalMode: 'read' | 'auto' | 'full';
   /** Optional SearXNG endpoint for web_search; empty = keyless DuckDuckGo. */
   searchEndpoint: string;
   /** Sampling temperature for deepseek-chat. */
@@ -137,25 +144,27 @@ export const DEFAULT_SETTINGS: Settings = {
   model: 'deepseek-v4-flash',
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   workingDir: '',
-  // Default = the Codex-style "Auto" preset (read + edit files + web freely;
-  // run_command confirms). Keep in sync with approvalModePerms('auto') in tools.ts.
+  // Default approval = Codex-style "Read Only": only local reading is free; edits,
+  // commands, and web access need approval. The composer chip is the source of truth
+  // (settings.approvalMode); toolPermissions is the matching per-tool map.
+  approvalMode: 'read',
   toolPermissions: {
     read_file: 'allow',
     list_dir: 'allow',
     find_files: 'allow',
     search_files: 'allow',
-    web_search: 'allow',
-    read_url: 'allow',
     read_office: 'allow',
     update_plan: 'allow',
-    edit_file: 'allow',
-    write_file: 'allow',
-    write_excel: 'allow',
+    read_process: 'allow',
+    web_search: 'ask',
+    read_url: 'ask',
+    edit_file: 'ask',
+    write_file: 'ask',
+    write_excel: 'ask',
     run_command: 'ask',
     start_process: 'ask',
-    read_process: 'allow',
     write_process: 'ask',
-    stop_process: 'allow',
+    stop_process: 'ask',
   },
   searchEndpoint: '',
   temperature: 1.0,

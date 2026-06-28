@@ -32,7 +32,12 @@ export function defaultToolPermissions(): Record<string, ToolPerm> {
 }
 
 export function toolPerm(name: string, settings: Settings): ToolPerm {
-  return settings.toolPermissions?.[name] ?? TOOL_LIST.find((t) => t.name === name)?.defaultPerm ?? 'ask';
+  return (
+    settings.toolPermissions?.[name] ??
+    approvalModePerms(settings.approvalMode || 'read')[name] ??
+    TOOL_LIST.find((t) => t.name === name)?.defaultPerm ??
+    'ask'
+  );
 }
 
 export function isKnownTool(name: string): boolean {

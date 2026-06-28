@@ -8,6 +8,17 @@ import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
 import type { Message as Msg } from '../lib/types';
 
+// Slow tools that get a continuous status line (no ticking timer) instead of letting the
+// per-message "Thinking…" meter blink out while they run. Maps tool name → i18n key.
+const TOOL_STATUS: Record<string, string> = {
+  web_search: 'statusSearching',
+  read_url: 'statusReading',
+  run_command: 'statusRunningTool',
+  start_process: 'statusRunningTool',
+  read_process: 'statusRunningTool',
+  write_process: 'statusRunningTool',
+};
+
 export function ChatView({
   controller,
   onOpenSettings,
@@ -134,6 +145,28 @@ export function ChatView({
             )}
             {visible.map((m) => (
               <Message key={m.id} message={m} toolResults={toolResults} />
+            ))}
+            {/* Continuous status during a slow tool call (e.g. web search) so the
+                "Thinking…" indicator doesn't blink out and back while it runs. */}
+            {generating && activeConversation?.activeTool && TOOL_STATUS[activeConversation.activeTool] && (
+              <div className="tool-status">
+                <span className="stream-dot" />
+                {t(TOOL_STATUS[activeConversation.activeTool])}
+              </div>
+            )}
+            {activeConversation?.queued?.map((q) => (
+              <div key={q.id} className="queued-msg" title={t('queuedHint')}>
+                <span className="queued-tag">{t('queued')}</span>
+                <span className="queued-text">{q.text}</span>
+                <button
+                  className="queued-cancel"
+                  onClick={() => activeConversation && controller.cancelQueued(activeConversation.id, q.id)}
+                  aria-label={t('cancel')}
+                  title={t('cancel')}
+                >
+                  ✕
+                </button>
+              </div>
             ))}
           </div>
         )}

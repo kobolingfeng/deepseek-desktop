@@ -4,7 +4,7 @@ import { clipboard, dialog, win } from '../api';
 import { useI18n } from '../lib/i18n';
 import { CONTEXT_LABEL } from '../lib/deepseek';
 import { prettyModel, type AgentMode, type ModelId } from '../lib/types';
-import { approvalModePerms, deriveApprovalMode, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
+import { approvalModePerms, listWorkspaceFiles, type ApprovalMode } from '../lib/tools';
 import type { ChatController } from '../lib/useChat';
 
 function BarMenu({
@@ -238,7 +238,8 @@ export function Composer({
 
   const submit = () => {
     const tx = text.trim();
-    if (!tx || generating || disabled) return;
+    // Note: NOT blocked while generating — sendMessage queues it to run after the turn.
+    if (!tx || disabled) return;
     // /rename <title> renames the active conversation instead of sending a message.
     const rn = /^\/rename\s+(.+)$/.exec(tx);
     if (rn) {
@@ -314,12 +315,11 @@ export function Composer({
           : t('modelBlurbDefault');
   const modelOptions = controller.models.map((id) => ({ id, label: prettyModel(id), desc: modelBlurb(id) }));
 
-  const permMode = deriveApprovalMode(controller.settings.toolPermissions);
+  const permMode = controller.settings.approvalMode || 'read';
   const PERM_LABEL: Record<string, string> = {
     read: t('approvalRead'),
     auto: t('approvalAuto'),
     full: t('approvalFull'),
-    custom: t('approvalCustom'),
   };
   const permOptions = [
     { id: 'read', label: t('approvalRead'), desc: t('approvalReadDesc') },
@@ -399,7 +399,9 @@ export function Composer({
                 }
                 options={permOptions}
                 currentId={permMode}
-                onSelect={(id) => controller.updateSettings({ toolPermissions: approvalModePerms(id as ApprovalMode) })}
+                onSelect={(id) =>
+                  controller.updateSettings({ approvalMode: id as ApprovalMode, toolPermissions: approvalModePerms(id as ApprovalMode) })
+                }
                 disabled={disabled}
               />
               {agentMode !== 'chat' && (

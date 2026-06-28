@@ -8,7 +8,13 @@ import { MoveToGroupDialog } from './MoveToGroupDialog';
 
 type Section =
   | { kind: 'list'; key: string; label: string; items: Conversation[] }
-  | { kind: 'group'; key: string; group: Group; items: Conversation[] };
+  | { kind: 'group'; key: string; group: Group; items: Conversation[] }
+  | { kind: 'projects'; key: string; projects: { cwd: string; name: string; items: Conversation[] }[] };
+
+// Folder name from a working-directory path (basename), for the Projects grouping.
+function projName(cwd: string): string {
+  return cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd;
+}
 
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
 const THEME_ICON: Record<ThemePref, LucideIcon> = { system: Monitor, light: Sun, dark: Moon };
@@ -142,22 +148,28 @@ export function Sidebar({
     const filtered = q ? conversations.filter((c) => c.title.toLowerCase().includes(q)) : conversations;
     // Empty/unsent chats don't appear in the sidebar until the first message (Codex-style).
     const live = filtered.filter((c) => !c.archived && c.messages.length > 0);
-    const groupIds = new Set(userGroups.map((g) => g.id));
     const pinned = live.filter((c) => c.pinned).sort(byRecent);
     const rest = live.filter((c) => !c.pinned);
 
     const out: Section[] = [];
     if (pinned.length) out.push({ kind: 'list', key: 'pinned', label: t('groupPinned'), items: pinned });
 
-    for (const g of userGroups) {
-      const items = rest.filter((c) => c.groupId === g.id).sort(byRecent);
-      // While searching, hide groups with no matches; otherwise show all (even empty).
-      if (q && !items.length) continue;
-      out.push({ kind: 'group', key: 'g-' + g.id, group: g, items });
+    // Codex-style auto-grouping: conversations WITH a working directory become "Projects"
+    // (grouped by that directory); conversations WITHOUT one are flat "Chats".
+    const byCwd = new Map<string, Conversation[]>();
+    for (const c of rest) {
+      if (!c.cwd) continue;
+      const arr = byCwd.get(c.cwd) ?? [];
+      arr.push(c);
+      byCwd.set(c.cwd, arr);
     }
+    const projects = [...byCwd.entries()]
+      .map(([cwd, items]) => ({ cwd, name: projName(cwd), items: items.sort(byRecent) }))
+      .sort((a, b) => (b.items[0]?.updatedAt || 0) - (a.items[0]?.updatedAt || 0));
+    if (projects.length) out.push({ kind: 'projects', key: 'projects', projects });
 
-    const ungrouped = rest.filter((c) => !c.groupId || !groupIds.has(c.groupId));
-    for (const d of dateGroups(ungrouped, t)) out.push({ kind: 'list', key: 'd-' + d.label, label: d.label, items: d.items });
+    const chats = rest.filter((c) => !c.cwd).sort(byRecent);
+    if (chats.length) out.push({ kind: 'list', key: 'chats', label: t('groupChats'), items: chats });
     return out;
   })();
 
@@ -275,28 +287,7 @@ export function Sidebar({
     return (
       <div
         key={c.id}
-        className={`conv-item ${c.id === activeId && !settingsOpen ? 'active' : ''} ${menuId === c.id ? 'menu-open' : ''} ${dragId === c.id ? 'dragging' : ''}`}
-        draggable
-        onDragStart={(e) => {
-          e.dataTransfer.setData('text/conv', c.id);
-          e.dataTransfer.effectAllowed = 'move';
-          // Custom drag label that follows the cursor (instead of the row snapshot).
-          const ghost = document.createElement('div');
-          ghost.className = 'drag-ghost';
-          ghost.textContent = c.title;
-          document.body.appendChild(ghost);
-          try {
-            e.dataTransfer.setDragImage(ghost, 14, 14);
-          } catch {
-            /* ignore */
-          }
-          setTimeout(() => ghost.remove(), 0);
-          setDragId(c.id);
-        }}
-        onDragEnd={() => {
-          setDragId(null);
-          setDropKey(null);
-        }}
+        className={`conv-item ${c.id === activeId && !settingsOpen ? 'active' : ''} ${menuId === c.id ? 'menu-open' : ''}`}
         onClick={() => {
           controller.selectConversation(c.id);
           onCloseSettings();
@@ -406,47 +397,6 @@ export function Sidebar({
                 </button>
               </>
             )}
-            <div className="conv-subitem">
-              <button className="conv-sub-parent">
-                <span>{t('moveToGroup')}</span>
-                <span className="sub-caret" aria-hidden>
-                  {submenuLeft ? '◂' : '▸'}
-                </span>
-              </button>
-              <div className={`conv-submenu ${submenuLeft ? 'flip-left' : ''}`}>
-                {controller.groups.map((g) => (
-                  <button
-                    key={g.id}
-                    className={c.groupId === g.id ? 'active' : ''}
-                    onClick={() => {
-                      controller.moveToGroup(c.id, g.id);
-                      setMenuId(null);
-                    }}
-                  >
-                    <Folder size={14} strokeWidth={1.9} /> {g.name}
-                  </button>
-                ))}
-                {c.groupId && (
-                  <button
-                    onClick={() => {
-                      controller.moveToGroup(c.id, null);
-                      setMenuId(null);
-                    }}
-                  >
-                    <FolderMinus size={14} strokeWidth={1.9} /> {t('removeFromGroup')}
-                  </button>
-                )}
-                <button
-                  className="conv-submenu-new"
-                  onClick={() => {
-                    setMoveId(c.id);
-                    setMenuId(null);
-                  }}
-                >
-                  ＋ {t('newGroup')}…
-                </button>
-              </div>
-            </div>
             <button
               className="danger"
               onClick={() => {
@@ -498,41 +448,27 @@ export function Sidebar({
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}
         {conversations.length > 0 && sections.length === 0 && <div className="conv-empty">{t('noMatches')}</div>}
-        {sections.map((s) => {
-          // group → move into it; date section → ungroup (null); pinned → not a target.
-          const target: string | null | undefined =
-            s.kind === 'group' ? s.group.id : s.key.startsWith('d-') ? null : undefined;
-          const droppable = target !== undefined && !!dragId;
-          const handlers = droppable
-            ? {
-                onDragOver: (e: React.DragEvent) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                  if (dropKey !== s.key) setDropKey(s.key);
-                },
-                onDrop: (e: React.DragEvent) => {
-                  e.preventDefault();
-                  const id = e.dataTransfer.getData('text/conv') || dragId;
-                  setDropKey(null);
-                  setDragId(null);
-                  if (id) controller.moveToGroup(id, target as string | null);
-                },
-              }
-            : {};
-          const cls = `conv-group ${droppable && dropKey === s.key ? 'drop-target' : ''}`;
-          return s.kind === 'list' ? (
-            <div key={s.key} className={cls} {...handlers}>
-              <div className="conv-section-label">{s.label}</div>
-              {s.items.map(renderItem)}
+        {sections.map((s) =>
+          s.kind === 'projects' ? (
+            <div key={s.key} className="conv-group">
+              <div className="conv-section-label">{t('groupProjects')}</div>
+              {s.projects.map((p) => (
+                <div key={p.cwd} className="conv-project">
+                  <div className="conv-project-head" title={p.cwd}>
+                    <Folder size={13} strokeWidth={1.9} />
+                    <span className="conv-project-name">{p.name}</span>
+                  </div>
+                  {p.items.map(renderItem)}
+                </div>
+              ))}
             </div>
           ) : (
-            <div key={s.key} className={cls} {...handlers}>
-              {renderGroupHeader(s.group, s.items.length)}
-              {!s.group.collapsed && s.items.map(renderItem)}
-              {!s.group.collapsed && s.items.length === 0 && <div className="conv-group-empty">{t('groupEmpty')}</div>}
+            <div key={s.key} className="conv-group">
+              <div className="conv-section-label">{s.kind === 'list' ? s.label : ''}</div>
+              {s.items.map(renderItem)}
             </div>
-          );
-        })}
+          ),
+        )}
 
         {archivedConvs.length > 0 && (
           <div className="conv-group">
