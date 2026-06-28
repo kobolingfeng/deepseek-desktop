@@ -377,6 +377,19 @@ export function useChat() {
     return conv;
   }
 
+  // New chat pre-set to a project's working directory (reuses an empty chat; the chat
+  // isn't really created until the first message, Codex-style).
+  function newConversationInDir(cwd: string): Conversation {
+    const conv = newConversation();
+    if (conv.cwd !== cwd) {
+      conv.cwd = cwd;
+      conv.updatedAt = Date.now();
+      persist();
+      bumpNow();
+    }
+    return conv;
+  }
+
   function selectConversation(id: string) {
     unreadIdsRef.current.delete(id); // opening a chat marks it read
     setActiveId(id);
@@ -1186,6 +1199,7 @@ export function useChat() {
     moveToGroup,
     stop,
     newConversation,
+    newConversationInDir,
     selectConversation,
     deleteConversation,
     renameConversation,

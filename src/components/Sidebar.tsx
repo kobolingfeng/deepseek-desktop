@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Monitor, Sun, Moon, Folder, Archive, Settings, Pin, FolderMinus, type LucideIcon } from 'lucide-react';
+import { Monitor, Sun, Moon, Folder, Archive, Settings, Pin, FolderMinus, ChevronRight, SquarePen, type LucideIcon } from 'lucide-react';
+import { clipboard, shell } from '../api';
 import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import { isAgentConv, type Conversation, type Group, type ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
@@ -96,6 +97,27 @@ export function Sidebar({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [submenuLeft, setSubmenuLeft] = useState(false);
   const userGroups = controller.groups;
+  // Per-project (working-dir) collapse state, persisted across restarts.
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('deepseek.projectCollapsed') || '[]'));
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const [projMenuCwd, setProjMenuCwd] = useState<string | null>(null);
+  const toggleProject = (cwd: string) =>
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(cwd)) next.delete(cwd);
+      else next.add(cwd);
+      try {
+        localStorage.setItem('deepseek.projectCollapsed', JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
 
   const handleNewChat = () => {
     controller.newConversation(); // reuses an existing empty chat instead of duplicating
@@ -130,16 +152,17 @@ export function Sidebar({
   };
 
   useEffect(() => {
-    if (!menuId && !groupMenuId) return;
+    if (!menuId && !groupMenuId && !projMenuCwd) return;
     const h = (e: MouseEvent) => {
-      if (!(e.target as HTMLElement).closest('.conv-menu, .conv-kebab')) {
+      if (!(e.target as HTMLElement).closest('.conv-menu, .conv-kebab, .proj-act')) {
         setMenuId(null);
         setGroupMenuId(null);
+        setProjMenuCwd(null);
       }
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
-  }, [menuId, groupMenuId]);
+  }, [menuId, groupMenuId, projMenuCwd]);
 
   // Computed every render (the controller re-renders in place via forceRender, so
   // memoizing on the stable conversations array would go stale after in-place edits).
@@ -452,15 +475,85 @@ export function Sidebar({
           s.kind === 'projects' ? (
             <div key={s.key} className="conv-group">
               <div className="conv-section-label">{t('groupProjects')}</div>
-              {s.projects.map((p) => (
-                <div key={p.cwd} className="conv-project">
-                  <div className="conv-project-head" title={p.cwd}>
-                    <Folder size={13} strokeWidth={1.9} />
-                    <span className="conv-project-name">{p.name}</span>
+              {s.projects.map((p) => {
+                const collapsed = collapsedProjects.has(p.cwd);
+                return (
+                  <div key={p.cwd} className="conv-project">
+                    <div
+                      className={`conv-project-head ${projMenuCwd === p.cwd ? 'menu-open' : ''}`}
+                      title={p.cwd}
+                      onClick={() => toggleProject(p.cwd)}
+                    >
+                      <span className={`proj-caret ${collapsed ? '' : 'open'}`} aria-hidden>
+                        <ChevronRight size={13} strokeWidth={2} />
+                      </span>
+                      <Folder size={13} strokeWidth={1.9} />
+                      <span className="conv-project-name">{p.name}</span>
+                      <button
+                        className="proj-act"
+                        title={t('newChatHere')}
+                        aria-label={t('newChatHere')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          controller.newConversationInDir(p.cwd);
+                          onCloseSettings();
+                        }}
+                      >
+                        <SquarePen size={14} strokeWidth={1.8} />
+                      </button>
+                      <button
+                        className="proj-act"
+                        title="More"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (projMenuCwd === p.cwd) {
+                            setProjMenuCwd(null);
+                            return;
+                          }
+                          computeMenuPos(e.currentTarget as HTMLElement);
+                          setProjMenuCwd(p.cwd);
+                        }}
+                      >
+                        ⋮
+                      </button>
+                      {projMenuCwd === p.cwd && (
+                        <div
+                          className="conv-menu"
+                          style={menuPos ? { position: 'fixed', top: menuPos.top, left: menuPos.left, right: 'auto' } : undefined}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => {
+                              controller.newConversationInDir(p.cwd);
+                              setProjMenuCwd(null);
+                              onCloseSettings();
+                            }}
+                          >
+                            <SquarePen size={14} strokeWidth={1.8} /> {t('newChatHere')}
+                          </button>
+                          <button
+                            onClick={() => {
+                              shell.open(p.cwd).catch(() => {});
+                              setProjMenuCwd(null);
+                            }}
+                          >
+                            <Folder size={14} strokeWidth={1.9} /> {t('convOpenDir')}
+                          </button>
+                          <button
+                            onClick={() => {
+                              clipboard.writeText(p.cwd).catch(() => {});
+                              setProjMenuCwd(null);
+                            }}
+                          >
+                            {t('convCopyCwd')}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {!collapsed && p.items.map(renderItem)}
                   </div>
-                  {p.items.map(renderItem)}
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div key={s.key} className="conv-group">

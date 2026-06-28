@@ -300,21 +300,56 @@ textarea {
   margin-bottom: 2px;
 }
 .conv-project-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px var(--space-2);
   color: var(--text-secondary);
   font-size: var(--text-sm);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
-.conv-project-head svg {
+.conv-project-head:hover {
+  background: var(--bg-hover);
+}
+.conv-project-head > svg {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
 .conv-project-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.proj-caret {
+  display: inline-flex;
+  color: var(--text-tertiary);
+  transition: transform var(--dur-1);
+}
+.proj-caret.open {
+  transform: rotate(90deg);
+}
+/* Hover-revealed project actions (new chat + kebab), like the conversation kebab. */
+.proj-act {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity var(--dur-1), background var(--dur-1), color var(--dur-1);
+}
+.conv-project-head:hover .proj-act,
+.conv-project-head.menu-open .proj-act {
+  opacity: 1;
+}
+.proj-act:hover {
+  background: var(--bg-active, var(--bg-hover));
+  color: var(--text-primary);
 }
 /* Conversations nested under a project read as indented children of the folder. */
 .conv-project .conv-item {
