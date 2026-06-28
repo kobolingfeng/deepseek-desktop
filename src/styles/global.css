@@ -295,6 +295,20 @@ textarea {
   color: var(--text-tertiary);
   padding: var(--space-3) var(--space-2) var(--space-1);
 }
+/* Collapsible top-level section header (Projects / Chats / Pinned). */
+.conv-section-label.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.conv-section-label.sec-head:hover {
+  color: var(--text-secondary);
+}
+.conv-section-label.sec-head .proj-caret {
+  margin-left: -2px;
+}
 /* Project (working-dir) sub-group: a folder header with its conversations under it. */
 .conv-project {
   margin-bottom: 2px;

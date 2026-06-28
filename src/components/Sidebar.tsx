@@ -106,6 +106,26 @@ export function Sidebar({
     }
   });
   const [projMenuCwd, setProjMenuCwd] = useState<string | null>(null);
+  // Top-level section collapse (Projects / Chats / Pinned), persisted.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem('deepseek.sectionCollapsed') || '[]'));
+    } catch {
+      return new Set<string>();
+    }
+  });
+  const toggleSection = (key: string) =>
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      try {
+        localStorage.setItem('deepseek.sectionCollapsed', JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   const toggleProject = (cwd: string) =>
     setCollapsedProjects((prev) => {
       const next = new Set(prev);
@@ -471,11 +491,20 @@ export function Sidebar({
       <div className="conv-list">
         {conversations.length === 0 && <div className="conv-empty">{t('noConversations')}</div>}
         {conversations.length > 0 && sections.length === 0 && <div className="conv-empty">{t('noMatches')}</div>}
-        {sections.map((s) =>
-          s.kind === 'projects' ? (
+        {sections.map((s) => {
+          const secCollapsed = collapsedSections.has(s.key);
+          const label = s.kind === 'projects' ? t('groupProjects') : s.kind === 'list' ? s.label : '';
+          return (
             <div key={s.key} className="conv-group">
-              <div className="conv-section-label">{t('groupProjects')}</div>
-              {s.projects.map((p) => {
+              <div className="conv-section-label sec-head" onClick={() => toggleSection(s.key)}>
+                <span className={`proj-caret ${secCollapsed ? '' : 'open'}`} aria-hidden>
+                  <ChevronRight size={12} strokeWidth={2.2} />
+                </span>
+                <span>{label}</span>
+              </div>
+              {!secCollapsed &&
+                (s.kind === 'projects'
+                  ? s.projects.map((p) => {
                 const collapsed = collapsedProjects.has(p.cwd);
                 return (
                   <div key={p.cwd} className="conv-project">
@@ -553,15 +582,11 @@ export function Sidebar({
                     {!collapsed && p.items.map(renderItem)}
                   </div>
                 );
-              })}
+                    })
+                  : s.items.map(renderItem))}
             </div>
-          ) : (
-            <div key={s.key} className="conv-group">
-              <div className="conv-section-label">{s.kind === 'list' ? s.label : ''}</div>
-              {s.items.map(renderItem)}
-            </div>
-          ),
-        )}
+          );
+        })}
 
         {archivedConvs.length > 0 && (
           <div className="conv-group">
