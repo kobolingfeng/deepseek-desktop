@@ -13,12 +13,36 @@ export type PatchRow = { t: 'ctx' | 'add' | 'del'; s: string };
 const isHeader = (l: string) =>
   /^\*\*\* (Add File:|Delete File:|Update File:|End Patch)/.test(l.trim());
 
+// Some models redundantly emit a changed line as BOTH a context line and a change line
+// (" X" immediately followed by "-X", or "+X" immediately followed by " X"). A line that
+// is simultaneously "keep" and "remove/add" is always an artifact — drop the duplicate
+// context line so the remaining hunk is a valid diff.
+function normalizeSection(sec: HunkLine[]): HunkLine[] {
+  const out: HunkLine[] = [];
+  for (let i = 0; i < sec.length; i++) {
+    const cur = sec[i];
+    if (cur.t === ' ') {
+      const next = sec[i + 1];
+      const prev = out[out.length - 1];
+      if ((next && next.t === '-' && next.s === cur.s) || (prev && prev.t === '+' && prev.s === cur.s)) continue;
+    }
+    out.push(cur);
+  }
+  return out;
+}
+
 /** Parse a patch envelope into file operations. Throws on a malformed envelope. */
 export function parsePatch(text: string): PatchOp[] {
   const raw = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   let i = raw.findIndex((l) => l.trim() === '*** Begin Patch');
-  if (i < 0) throw new Error('patch must start with "*** Begin Patch"');
-  i++;
+  if (i >= 0) {
+    i++; // start after the envelope header
+  } else {
+    // Lenient: models (esp. smaller ones) sometimes omit the "*** Begin Patch"
+    // envelope. If a file marker is present, parse from there anyway.
+    i = raw.findIndex((l) => /^\*\*\* (Add|Update|Delete) File: /.test(l.trim()));
+    if (i < 0) throw new Error('patch must contain at least one "*** Add File:", "*** Update File:", or "*** Delete File:" line');
+  }
   const ops: PatchOp[] = [];
   while (i < raw.length && raw[i].trim() !== '*** End Patch') {
     const line = raw[i];
@@ -61,7 +85,7 @@ export function parsePatch(text: string): PatchOp[] {
         }
         i++;
       }
-      ops.push({ kind: 'update', path, moveTo, sections: sections.filter((s) => s.length) });
+      ops.push({ kind: 'update', path, moveTo, sections: sections.map(normalizeSection).filter((s) => s.length) });
     } else {
       i++; // skip stray lines between hunks
     }
@@ -112,6 +136,10 @@ function reindent(s: string, delta: number): string {
 
 /** Apply update sections to file content. Throws if a section's context isn't found. */
 export function applySections(content: string, sections: HunkLine[][]): string {
+  // Reject a degenerate "update" that changes nothing (models sometimes emit only
+  // context lines) — otherwise it silently no-ops and the agent thinks it succeeded.
+  if (!sections.some((sec) => sec.some((h) => h.t !== ' ')))
+    throw new Error('patch made no changes — an Update File hunk must contain at least one "-" (remove) or "+" (add) line');
   let lines = content.split('\n');
   for (const sec of sections) {
     const oldBlock = sec.filter((h) => h.t !== '+').map((h) => h.s);
@@ -137,7 +165,11 @@ export function applySections(content: string, sections: HunkLine[][]): string {
     // tier 3: match ignoring leading+trailing whitespace (models often mis-indent the
     // context), then re-indent the replacement to the file's real indentation.
     at = indexOfBlock(lines.map((s) => s.trim()), oldBlock.map((s) => s.trim()));
-    if (at < 0) throw new Error('could not find the context to update:\n' + oldBlock.slice(0, 4).join('\n'));
+    if (at < 0)
+      throw new Error(
+        'could not locate the context in the file — re-read the file and copy the surrounding unchanged lines EXACTLY (with their original indentation). Looked for:\n' +
+          oldBlock.slice(0, 4).join('\n'),
+      );
     const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
     if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
     lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];

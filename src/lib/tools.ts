@@ -203,6 +203,39 @@ export const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'edit_file',
+      description:
+        'Edit a file by replacing an exact string. Read the file first, then give old_string copied EXACTLY from it (including whitespace/indentation) plus enough surrounding lines to be unique, and new_string to replace it with. This is the primary tool for changing existing files. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'File to edit.' },
+          old_string: { type: 'string', description: 'Exact text to replace (copy from the file; include enough surrounding context to be unique).' },
+          new_string: { type: 'string', description: 'Replacement text.' },
+          replace_all: { type: 'boolean', description: 'Replace every occurrence instead of requiring a unique match.' },
+        },
+        required: ['path', 'old_string', 'new_string'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description: 'Create a new file, or overwrite an existing one, with the given full contents. Use for new files; for edits to an existing file prefer edit_file. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Destination file path.' },
+          content: { type: 'string', description: 'Full file contents to write.' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'write_excel',
       description:
         'Create or overwrite an Excel .xlsx workbook. Provide one or more sheets; each sheet has rows, where each row is an array of cell values (strings or numbers); the first row is typically headers. Requires user approval.',
@@ -228,23 +261,6 @@ export const TOOL_SCHEMAS = [
           },
         },
         required: ['path', 'sheets'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'apply_patch',
-      description:
-        'Create, update, delete, or rename files in ONE call by passing a patch as `patch`. Envelope:\n' +
-        '*** Begin Patch\n*** Add File: relative/path\n+full new line\n*** Update File: relative/path\n@@ optional nearby code\n unchanged context line\n-removed line\n+added line\n*** Delete File: relative/path\n*** End Patch\n' +
-        'Under "*** Update File" add "*** Move to: relative/new/path" to rename. Use RELATIVE paths. This is the ONLY tool for creating and editing text files. For updates, include enough surrounding UNCHANGED context lines (each prefixed with a single space) that the change\'s location is UNIQUE in the file — otherwise it is rejected as ambiguous. Requires user approval.',
-      parameters: {
-        type: 'object',
-        properties: {
-          patch: { type: 'string', description: 'The full patch envelope (*** Begin Patch … *** End Patch).' },
-        },
-        required: ['patch'],
       },
     },
   },
