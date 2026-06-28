@@ -87,7 +87,9 @@ export function parsePatch(text: string): PatchOp[] {
         }
         i++;
       }
-      ops.push({ kind: 'update', path, moveTo, sections: sections.map(normalizeSection).filter((s) => s.length) });
+      // Keep sections RAW here; normalizeSection is applied only as a fallback in
+      // applySections (so a valid patch is matched as-written, never pre-mangled).
+      ops.push({ kind: 'update', path, moveTo, sections: sections.filter((s) => s.length) });
     } else {
       i++; // skip stray lines between hunks
     }
@@ -136,6 +138,60 @@ function reindent(s: string, delta: number): string {
   return s.slice(Math.min(-delta, leadWs(s).length));
 }
 
+// Locate one section's context and return the new line array — or throw an Error tagged
+// with .code ('ambiguous' | 'notfound') so the caller can decide whether to retry.
+function locateAndApply(lines: string[], sec: HunkLine[]): string[] {
+  const oldBlock = sec.filter((h) => h.t !== '+').map((h) => h.s);
+  let newBlock = sec.filter((h) => h.t !== '-').map((h) => h.s);
+  if (!oldBlock.length) {
+    // pure addition with no context → append at end, but BEFORE a trailing empty line
+    // left by a final newline (content.split('\n') yields a '' sentinel).
+    const end = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+    return [...lines.slice(0, end), ...newBlock, ...lines.slice(end)];
+  }
+  const ambiguous = (n: number) => {
+    const e = new Error(
+      `context is ambiguous — it appears ${n} times; include more surrounding unchanged lines to pin the exact location:\n` +
+        oldBlock.slice(0, 4).join('\n'),
+    );
+    (e as any).code = 'ambiguous';
+    return e;
+  };
+  // Try increasingly lenient matches, but reject when ANY tier finds the block in more
+  // than one place — editing the first of several matches would silently corrupt.
+  let at: number;
+  const exact = countMatches(lines, oldBlock);
+  if (exact > 1) throw ambiguous(exact);
+  if (exact === 1) {
+    at = indexOfBlock(lines, oldBlock); // tier 1: exact
+  } else {
+    const rl = lines.map(rtrim); // tier 2: ignore trailing whitespace
+    const ro = oldBlock.map(rtrim);
+    const n2 = countMatches(rl, ro);
+    if (n2 > 1) throw ambiguous(n2);
+    if (n2 === 1) {
+      at = indexOfBlock(rl, ro);
+    } else {
+      const tl = lines.map((s) => s.trim()); // tier 3: ignore leading+trailing ws, re-indent
+      const to = oldBlock.map((s) => s.trim());
+      const n3 = countMatches(tl, to);
+      if (n3 > 1) throw ambiguous(n3);
+      at = indexOfBlock(tl, to);
+      if (at < 0) {
+        const e = new Error(
+          'could not locate the context in the file — re-read the file and copy the surrounding unchanged lines EXACTLY (with their original indentation). Looked for:\n' +
+            oldBlock.slice(0, 4).join('\n'),
+        );
+        (e as any).code = 'notfound';
+        throw e;
+      }
+      const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
+      if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
+    }
+  }
+  return [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
+}
+
 /** Apply update sections to file content. Throws if a section's context isn't found. */
 export function applySections(content: string, sections: HunkLine[][]): string {
   // Reject a degenerate "update" that changes nothing (models sometimes emit only
@@ -144,53 +200,22 @@ export function applySections(content: string, sections: HunkLine[][]): string {
     throw new Error('patch made no changes — an Update File hunk must contain at least one "-" (remove) or "+" (add) line');
   let lines = content.split('\n');
   for (const sec of sections) {
-    const oldBlock = sec.filter((h) => h.t !== '+').map((h) => h.s);
-    let newBlock = sec.filter((h) => h.t !== '-').map((h) => h.s);
-    if (!oldBlock.length) {
-      // pure addition with no context → append at end, but BEFORE a trailing empty line
-      // left by a final newline (content.split('\n') yields a '' sentinel) so we don't
-      // introduce a blank gap.
-      const end = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
-      lines = [...lines.slice(0, end), ...newBlock, ...lines.slice(end)];
-      continue;
-    }
-    const ambiguous = (n: number) =>
-      new Error(
-        `context is ambiguous — it appears ${n} times; include more surrounding unchanged lines to pin the exact location:\n` +
-          oldBlock.slice(0, 4).join('\n'),
-      );
-    // Try increasingly lenient matches, but reject when ANY tier finds the block in more
-    // than one place — editing the first of several matches would silently corrupt.
-    let at: number;
-    const exact = countMatches(lines, oldBlock);
-    if (exact > 1) throw ambiguous(exact);
-    if (exact === 1) {
-      at = indexOfBlock(lines, oldBlock); // tier 1: exact
-    } else {
-      // tier 2: ignore trailing whitespace
-      const rl = lines.map(rtrim);
-      const ro = oldBlock.map(rtrim);
-      const n2 = countMatches(rl, ro);
-      if (n2 > 1) throw ambiguous(n2);
-      if (n2 === 1) {
-        at = indexOfBlock(rl, ro);
-      } else {
-        // tier 3: ignore leading+trailing whitespace, then re-indent the replacement
-        const tl = lines.map((s) => s.trim());
-        const to = oldBlock.map((s) => s.trim());
-        const n3 = countMatches(tl, to);
-        if (n3 > 1) throw ambiguous(n3);
-        at = indexOfBlock(tl, to);
-        if (at < 0)
-          throw new Error(
-            'could not locate the context in the file — re-read the file and copy the surrounding unchanged lines EXACTLY (with their original indentation). Looked for:\n' +
-              oldBlock.slice(0, 4).join('\n'),
-          );
-        const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
-        if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
+    try {
+      lines = locateAndApply(lines, sec);
+    } catch (e: any) {
+      // Only if the section as-written can't be located: the model may have redundantly
+      // duplicated a changed line as context (a small-model habit). Retry with that
+      // normalized away — as a FALLBACK ONLY, so a valid patch whose context legitimately
+      // equals an adjacent +/- line is never corrupted by eager normalization.
+      if (e?.code === 'notfound') {
+        const norm = normalizeSection(sec);
+        if (norm.length && JSON.stringify(norm) !== JSON.stringify(sec)) {
+          lines = locateAndApply(lines, norm);
+          continue;
+        }
       }
+      throw e;
     }
-    lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
   }
   return lines.join('\n');
 }

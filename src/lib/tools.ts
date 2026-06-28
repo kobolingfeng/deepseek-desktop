@@ -889,12 +889,17 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       if (!cmd) throw new Error('command is required');
       const wd = (settings.workingDir || '').replace(/"/g, '').trim();
       // Run via PowerShell (like Codex). -EncodedCommand (base64 of UTF-16LE) sidesteps
-      // all shell quoting; `& { } 2>&1` returns output+errors as plain text. Native
-      // commands set $LASTEXITCODE; a pure-cmdlet error leaves it $null, so fall back to
-      // $error.Count so a failing cmdlet (e.g. Get-Item missing) reports nonzero, not 0.
-      const b64 = psEncode(
-        `& {\n${cmd}\n} 2>&1\n$ec = $LASTEXITCODE\nif ($null -eq $ec) { $ec = $(if ($error.Count) { 1 } else { 0 }) }\nexit $ec`,
-      );
+      // all shell quoting; `& { } 2>&1` returns output+errors as plain text. Exit code:
+      // ErrorActionPreference=Stop turns a cmdlet error into a throw → caught → exit 1
+      // (with the error text), while native commands keep their real $LASTEXITCODE and a
+      // per-command `-ErrorAction SilentlyContinue` still suppresses (no false positive).
+      const script =
+        `$ErrorActionPreference='Stop'\n` +
+        `$PSNativeCommandUseErrorActionPreference=$false\n` +
+        `try {\n& {\n${cmd}\n} 2>&1\n$ec = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }\n}\n` +
+        `catch { Write-Output ($_ | Out-String); $ec = 1 }\n` +
+        `exit $ec`;
+      const b64 = psEncode(script);
       const r = await shell.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], ctx.cancelId, wd || undefined);
       let out = (r.stdout || '').trim();
       // PowerShell serializes its error stream to stderr as CLIXML noise — drop it

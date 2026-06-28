@@ -2479,12 +2479,15 @@ static void reg_extras() {
                 if (entry->cancel.load()) killTree(pi.dwProcessId); // cancel arrived during the spawn race
             }
 
+            // Cap stored output (the TS layer truncates to ~30 KB anyway); keep DRAINING
+            // past the cap so the child never blocks on a full pipe — just stop appending.
+            static const size_t OUT_CAP = 4u << 20; // 4 MB
             auto readPipe = [](HANDLE h) -> std::string {
                 std::string result;
                 char buf[4096];
                 DWORD rd;
                 while (ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                    result.append(buf, rd);
+                    if (result.size() < OUT_CAP) result.append(buf, rd);
                 CloseHandle(h);
                 return result;
             };
@@ -2495,7 +2498,7 @@ static void reg_extras() {
                 auto* c = (PipeCtx*)p;
                 char buf[4096]; DWORD rd;
                 while (ReadFile(c->h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                    c->data.append(buf, rd);
+                    if (c->data.size() < OUT_CAP) c->data.append(buf, rd);
                 CloseHandle(c->h);
                 return 0;
             }, errCtx, 0, nullptr);
@@ -2551,6 +2554,7 @@ static void reg_extras() {
         std::mutex bufMutex;
         std::atomic<bool> exited{false};
         std::atomic<DWORD> exitCode{0};
+        std::atomic<int> pendingWrites{0}; // bound concurrent write workers
     };
     static std::mutex g_sessMutex;
     static std::unordered_map<int, std::shared_ptr<Session>> g_sessions;
@@ -2658,13 +2662,23 @@ static void reg_extras() {
         if (newline) input += "\r\n";
         // Write OFF the UI thread: if the child has stopped reading, a full stdin pipe
         // would block WriteFile indefinitely; doing it here would hang the whole UI and
-        // even kill (which needs stdinMutex) couldn't recover. The detached worker holds
-        // a shared_ptr so the session stays alive; kill()'s killTree releases a stuck write.
+        // even kill couldn't recover. The detached worker holds a shared_ptr so the
+        // session stays alive; kill()'s killTree releases a stuck write. The agent issues
+        // writes sequentially (it awaits each), so ordering holds; pendingWrites just
+        // bounds the worker count if something ever bursts writes.
+        if (s->pendingWrites.load() > 64) return json{{"ok", false}, {"error", "too many pending writes"}};
+        s->pendingWrites.fetch_add(1);
         std::thread([s, input]() {
             std::lock_guard<std::mutex> lk(s->stdinMutex);
-            if (!s->stdinOpen) return;
-            DWORD wr = 0;
-            WriteFile(s->hStdinW, input.data(), (DWORD)input.size(), &wr, nullptr);
+            if (s->stdinOpen) {
+                DWORD wr = 0;
+                if (!WriteFile(s->hStdinW, input.data(), (DWORD)input.size(), &wr, nullptr)) {
+                    // surface the failure so the next read_process shows it
+                    std::lock_guard<std::mutex> bl(s->bufMutex);
+                    s->buf.append("\n[stdin write failed]\n");
+                }
+            }
+            s->pendingWrites.fetch_sub(1);
         }).detach();
         return json{{"ok", true}};
     });
@@ -2707,18 +2721,19 @@ static void reg_extras() {
             }
         }
         if (!s) return json{{"ok", false}, {"error", "session not found"}};
-        // Kill the process tree FIRST: this closes the child's stdin-read end, releasing
-        // any worker blocked in WriteFile on a full pipe so it can drop stdinMutex —
-        // THEN we can take the mutex and close our stdin handle without deadlocking.
-        DWORD pid = s->pid;
-        if (pid) killTree(pid);
-        {
+        // Do the teardown on a worker thread: killTree waits on taskkill (up to 5s) and
+        // must not block the UI/dispatch thread. killTree FIRST closes the child's
+        // stdin-read end, releasing any worker stuck in WriteFile, THEN we take stdinMutex
+        // and close our stdin handle without deadlocking. The thread holds a shared_ptr.
+        std::thread([s]() {
+            DWORD pid = s->pid;
+            if (pid) killTree(pid);
             std::lock_guard<std::mutex> lk(s->stdinMutex);
             if (s->stdinOpen) {
                 CloseHandle(s->hStdinW);
                 s->stdinOpen = false;
             }
-        }
+        }).detach();
         return json{{"ok", true}};
     });
 }
