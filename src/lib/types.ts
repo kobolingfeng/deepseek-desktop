@@ -136,6 +136,7 @@ export interface Profile {
   systemPrompt: string;
   agentMode: AgentMode;
   toolPermissions: Record<string, ToolPerm>;
+  approvalMode?: 'read' | 'auto' | 'full';
 }
 
 // Empty by default — no system prompt is sent unless the user sets one.

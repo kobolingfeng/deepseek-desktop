@@ -5,7 +5,6 @@ import { useI18n, type Lang, type TFn } from '../lib/i18n';
 import { isAgentConv, type Conversation, type Group, type ThemePref } from '../lib/types';
 import type { ChatController } from '../lib/useChat';
 import { ConfirmDialog } from './ConfirmDialog';
-import { MoveToGroupDialog } from './MoveToGroupDialog';
 
 type Section =
   | { kind: 'list'; key: string; label: string; items: Conversation[] }
@@ -87,7 +86,6 @@ export function Sidebar({
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState('');
   const [confirmId, setConfirmId] = useState<string | null>(null);
-  const [moveId, setMoveId] = useState<string | null>(null);
   const [groupMenuId, setGroupMenuId] = useState<string | null>(null);
   const [groupRenameId, setGroupRenameId] = useState<string | null>(null);
   const [groupRenameText, setGroupRenameText] = useState('');
@@ -643,13 +641,6 @@ export function Sidebar({
           onCancel={() => setConfirmId(null)}
         />
       )}
-      {moveId &&
-        (() => {
-          const conv = conversations.find((c) => c.id === moveId);
-          return conv ? (
-            <MoveToGroupDialog controller={controller} conv={conv} onClose={() => setMoveId(null)} />
-          ) : null;
-        })()}
     </aside>
   );
 }

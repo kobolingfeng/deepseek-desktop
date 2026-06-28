@@ -45,6 +45,7 @@ function pickProfile(s: Settings): Profile {
     systemPrompt: s.systemPrompt,
     agentMode: s.agentMode,
     toolPermissions: s.toolPermissions,
+    approvalMode: s.approvalMode,
   };
 }
 
@@ -570,7 +571,7 @@ export function useChat() {
 
   async function runGitDiff() {
     const conv = getActive() ?? newConversation();
-    const cwd = settingsRef.current.workingDir;
+    const cwd = effectiveCwd(conv.id); // a project chat's own cwd, not just the global one
     const push = (content: string) => {
       conv.messages.push({ id: newId('a'), role: 'assistant', content, createdAt: Date.now() });
       conv.updatedAt = Date.now();
@@ -627,7 +628,14 @@ export function useChat() {
       if (prev.workingDir) profiles[prev.workingDir] = pickProfile(prev);
       const np = patch.workingDir ? profiles[patch.workingDir] : undefined;
       if (np) {
-        next = { ...next, model: np.model, systemPrompt: np.systemPrompt, agentMode: np.agentMode, toolPermissions: np.toolPermissions };
+        next = {
+          ...next,
+          model: np.model,
+          systemPrompt: np.systemPrompt,
+          agentMode: np.agentMode,
+          toolPermissions: np.toolPermissions,
+          approvalMode: np.approvalMode ?? next.approvalMode,
+        };
       }
       saveProfiles(profiles);
     } else if (next.workingDir) {
@@ -756,7 +764,6 @@ export function useChat() {
     runningIdsRef.current.add(conv.id);
     const startedAt = Date.now();
     conv.turnStartedAt = startedAt; // single continuous status timer for the whole turn
-    const turnStartIndex = conv.messages.length; // for the preview scan: this turn's output only
     bumpNow();
     const cfg = settingsRef.current; // immutable snapshot for this turn
     const turnMcp = mcpRef.current; // MCP servers as of turn start
@@ -936,7 +943,7 @@ export function useChat() {
               out = `MCP server not connected for ${tc.name}.`;
               isErr = true;
             } else {
-              const full = deriveApprovalMode(settingsRef.current.toolPermissions) === 'full';
+              const full = settingsRef.current.approvalMode === 'full';
               const approved = full ? true : await requestApproval(conv.id, tc);
               if (!approved || turn.stopped) {
                 out = turn.stopped ? 'Stopped.' : 'User denied this action.';
@@ -950,6 +957,8 @@ export function useChat() {
                 }
                 const ctrl = new AbortController();
                 turn.toolCancel = () => ctrl.abort();
+                conv.activeTool = tc.name; // show a status label for MCP calls too
+                bumpNow();
                 try {
                   out = await callMcpTool(server, tool, a, ctrl.signal);
                 } catch (e: any) {
@@ -957,6 +966,8 @@ export function useChat() {
                   isErr = true;
                 } finally {
                   turn.toolCancel = null;
+                  conv.activeTool = undefined;
+                  bumpNow();
                 }
               }
             }
@@ -1110,11 +1121,13 @@ export function useChat() {
         } else {
           // Scan the recent turn (assistant replies AND tool outputs, e.g. a dev-server
           // banner) for a localhost URL and auto-open it in the preview pane.
+          // Scan this turn's messages (by timestamp, so it survives a mid-turn compaction
+          // that replaces the messages array) for a localhost URL.
           let url: string | undefined;
-          for (let i = conv.messages.length - 1; i >= turnStartIndex; i--) {
-            const mt = (conv.messages[i].content || '').match(
-              /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]"'`]*)?/i,
-            );
+          for (let i = conv.messages.length - 1; i >= 0; i--) {
+            const msg = conv.messages[i];
+            if ((msg.createdAt || 0) < startedAt) break;
+            const mt = (msg.content || '').match(/https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/[^\s)\]"'`]*)?/i);
             if (mt) {
               url = mt[0].replace(/[.,;:!?)\]]+$/, ''); // drop trailing sentence punctuation
               break;

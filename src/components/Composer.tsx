@@ -119,17 +119,20 @@ export function Composer({
   const slashQuery = !dismissed && /^\/(\S*)$/.test(text) ? text.slice(1).toLowerCase() : null;
   const atMatch = !dismissed ? /(?:^|\s)@(\S*)$/.exec(text) : null;
 
+  // @-mention files come from the ACTIVE conversation's working dir (a project chat has
+  // its own cwd), matching how mentions are expanded at send time.
+  const effectiveCwd = controller.activeConversation?.cwd || controller.settings.workingDir;
   // Reset the @-mention file cache when the project directory changes.
   useEffect(() => {
     filesLoaded.current = false;
     setFiles([]);
-  }, [controller.settings.workingDir]);
+  }, [effectiveCwd]);
 
   useEffect(() => {
-    if (!(atMatch && !filesLoaded.current && controller.settings.workingDir)) return;
+    if (!(atMatch && !filesLoaded.current && effectiveCwd)) return;
     filesLoaded.current = true;
     let cancelled = false;
-    listWorkspaceFiles(controller.settings.workingDir)
+    listWorkspaceFiles(effectiveCwd)
       .then((f) => {
         if (!cancelled) setFiles(f);
       })
@@ -137,7 +140,7 @@ export function Composer({
     return () => {
       cancelled = true;
     };
-  }, [atMatch, controller.settings.workingDir]);
+  }, [atMatch, effectiveCwd]);
 
   const curMode = controller.settings.agentMode || 'chat';
   // `run` = execute immediately (and clear the box); `insert` = drop text into the box
