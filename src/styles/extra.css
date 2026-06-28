@@ -170,6 +170,38 @@
   overflow: hidden;
   min-height: 0;
 }
+/* About & support section */
+.about-links {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 18px;
+}
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.about-reward {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.about-reward-label {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.about-qr {
+  width: 200px;
+  height: 200px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: #fff;
+}
+.about-foot {
+  margin-top: 18px;
+  font-size: var(--text-xs, 12px);
+  color: var(--text-tertiary);
+}
 .side-empty {
   margin: auto;
   padding: var(--space-6);

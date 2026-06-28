@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import { dialog } from '../api';
+import { ArrowLeft, Star, Heart } from 'lucide-react';
+import { dialog, shell } from '../api';
+import wechatQr from '../../assets/wechat-reward.jpg?inline';
 import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
 import { TOOL_LIST, deriveApprovalMode } from '../lib/tools';
@@ -59,6 +60,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
     { id: 'commands', key: 'secCommands' },
     { id: 'mcp', key: 'secMcp' },
     { id: 'appearance', key: 'secAppearance' },
+    { id: 'about', key: 'secAbout' },
   ];
 
   return (
@@ -351,6 +353,27 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* About & support */}
+        <div className="settings-section" hidden={tab !== 'about'}>
+          <div className="section-title">{t('secAbout')}</div>
+          <div className="section-card">
+            <p className="hint">{t('aboutBlurb')}</p>
+            <div className="about-links">
+              <button className="ghost about-link" onClick={() => shell.open('https://github.com/kobolingfeng/deepseek-desktop').catch(() => {})}>
+                <Star size={15} strokeWidth={1.9} /> GitHub
+              </button>
+              <button className="ghost about-link" onClick={() => shell.open('https://paypal.me/koboling').catch(() => {})}>
+                <Heart size={15} strokeWidth={1.9} /> PayPal
+              </button>
+            </div>
+            <div className="about-reward">
+              <div className="about-reward-label">{t('aboutWechat')}</div>
+              <img className="about-qr" src={wechatQr} alt={t('aboutWechat')} width={200} height={200} />
+            </div>
+            <p className="about-foot">{t('about')}</p>
           </div>
         </div>
 

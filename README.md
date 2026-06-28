@@ -1,101 +1,108 @@
 # DeepSeek Desktop
 
-A fast, native **desktop client and coding agent for DeepSeek** — streaming chat plus a full
-built-in agent (read/write files, run commands, an interactive terminal, MCP tools, Office
-documents, and more). Built primarily for the DeepSeek API, but works with **any
-OpenAI‑compatible endpoint** (just change the Base URL).
+**中文** · [English](README.en.md)
 
-> 专为 DeepSeek 打造的轻量桌面客户端 + 编码 Agent，也兼容任何 OpenAI 兼容接口。无 Electron，启动快、内存低。
+专为 **DeepSeek** 打造的桌面客户端 + 编码 Agent —— 流式对话,加上完整的内置 Agent
+(读写文件、执行命令、内置终端、MCP 工具、Office 文档等)。主要面向 DeepSeek API,但也
+**兼容任何 OpenAI 兼容接口**(在设置里改 Base URL 即可)。
 
-Not Electron: a tiny **C++ / Win32 / WebView2** native shell hosts a **React + Vite +
-TypeScript** frontend, with a Bun build. Windows 10/11.
+> 不是 Electron:用极小的 **C++ / Win32 / WebView2** 原生壳承载 **React + Vite + TypeScript**
+> 前端,Bun 构建。启动快、内存低。Windows 10/11。
 
 ---
 
-## Features
+## 功能
 
-**Chat**
-- Token-by-token **streaming** over a native `http.stream` command (WinHTTP worker + line-safe
-  SSE), so no CORS and no UTF‑8 truncation.
-- DeepSeek V-series models with reasoning (`reasoning_content`) shown in a collapsible block.
-- Markdown + code highlighting, message queue, context **compaction** for very long chats.
+**对话**
+- 逐字 **流式输出**,走原生 `http.stream` 命令(WinHTTP 工作线程 + 按行切分的 SSE),
+  绕过 CORS,也不会 UTF‑8 截断。
+- DeepSeek V 系列模型,推理过程(`reasoning_content`)以可折叠块展示。
+- Markdown + 代码高亮、消息队列、超长对话自动 **上下文压缩**。
 
 **Agent**
-- Tools: read/list/find/search files, `edit_file` / `write_file`, `run_command`, persistent
-  **processes** (PTY sessions), `web_search` / `read_url`, and Office read.
-- **Approval modes** (Codex-style): *Read Only* / *Auto* / *Full Access*, per‑tool overrides,
-  with an in‑UI approval bar.
-- **Plan** and **Goal** modes; a live **plan / todo** panel.
-- **MCP servers** (HTTP transport) for external tools.
-- **Sub‑agents** — delegate a focused sub-task to an autonomous nested agent that returns a
-  summary, keeping the main thread clean.
-- **Checkpoints + one‑click undo** — every turn snapshots the files it touches, so you can
-  revert the agent's edits.
+- 工具:读取/列目录/查找/搜索文件、`edit_file` / `write_file`、`run_command`、常驻
+  **进程**(PTY 会话)、`web_search` / `read_url`、读取 Office。
+- **审批模式**(对齐 Codex):*只读* / *自动* / *完全访问*,可按工具细调,界面内审批栏确认。
+- **计划** 与 **目标** 模式;实时 **计划 / 待办** 面板。
+- **MCP 服务器**(HTTP)接入外部工具。
+- **子代理** —— 把一个独立子任务交给自主的嵌套 Agent,只回传一段摘要,保持主线程干净。
+- **检查点 + 一键回滚** —— 每轮自动快照改动的文件,可一键还原 Agent 的修改。
 
-**Office & documents**
-- Create **Word (.docx)**, **Excel (.xlsx)** (with real formulas), and **PowerPoint (.pptx)** —
-  including **Morph‑animated decks** — purely in the frontend (docx / pptxgenjs / SheetJS).
-- In‑app **Office preview** (spreadsheets as tables, Word via mammoth, slides as cards).
-- Built‑in **document skills**: pitch deck, financial model, data dashboard, 3D web deck,
-  report, academic paper — domain knowledge injected via `/skill` slash commands.
+**Office 与文档**
+- 纯前端生成 **Word(.docx)**、**Excel(.xlsx)**(支持真公式)、**PowerPoint(.pptx)**
+  —— 包括 **Morph 动画演示**(docx / pptxgenjs / SheetJS)。
+- 应用内 **Office 预览**(表格渲染、Word 用 mammoth、幻灯片卡片)。
+- 内置 **文档技能**:融资路演、财务模型、数据仪表盘、3D 网页演示、报告、学术论文 ——
+  通过 `/技能` 斜杠命令注入领域知识。
 
-**Workspace**
-- **Preview panel**: live local web pages and Office files, with live refresh.
-- **Built‑in terminal** — a real **ConPTY** pseudo‑console rendered with xterm.js (prompt,
-  colours, full-screen apps).
-- Resizable sidebars, command palette (Ctrl+K), Projects/Chats grouping, @‑mention files,
-  custom slash commands, bilingual UI (EN/中文), light/dark themes, UI zoom (Ctrl ±), system
-  tray, and a keyboard shortcuts panel (Ctrl+/).
+**工作区**
+- **预览面板**:本地网页 + Office 文件,实时刷新。
+- **内置终端** —— 真正的 **ConPTY** 伪控制台,用 xterm.js 渲染(提示符、颜色、全屏程序)。
+- 可调宽侧边栏、命令面板(Ctrl+K)、Projects/Chats 分组、@ 提及文件、自定义斜杠命令、
+  中英双语、深/浅色主题、界面缩放(Ctrl ±)、系统托盘、快捷键速查(Ctrl+/)。
 
 ---
 
-## Quick start
+## 快速开始
 
-**Requirements:** Windows 10/11 · [Bun](https://bun.sh) · Visual Studio 2022 Build Tools
-(C++ desktop) · WebView2 Runtime (preinstalled on most Win10/11).
+**环境要求:** Windows 10/11 · [Bun](https://bun.sh) · Visual Studio 2022 生成工具(C++ 桌面)
+· WebView2 运行时(Win10/11 通常已内置)。
 
 ```bash
 bun install
-bun run setup     # one-time: downloads the WebView2 SDK + nlohmann/json into deps/
-bun run dev       # hot-reload dev (Vite + native shell)
-# or
+bun run setup     # 一次性:下载 WebView2 SDK + nlohmann/json 到 deps/
+bun run dev       # 热重载开发(Vite + 原生壳)
+# 或
 bun run build     # → dist\app.exe
 ```
 
-Then open **⚙ Settings**, paste your DeepSeek API key (from platform.deepseek.com), and
-optionally set a Working Directory for the agent.
+启动后点 **⚙ 设置**,填入 DeepSeek API Key(在 platform.deepseek.com 获取),并可选地
+设置一个工作目录给 Agent 使用。
 
-### Build variants
+### 构建变体
 
 ```bash
-bun run build:single     # single self-contained .exe (HTML/JS/CSS embedded)
-bun run package:single   # distributable zip
+bun run build:single     # 单文件自包含 exe(HTML/JS/CSS 全内嵌)
+bun run package:single   # 可分发 zip
 ```
 
 ---
 
-## Security & privacy
+## 安全与隐私
 
-- Your **API key is stored locally only** (browser `localStorage` in the WebView2 user-data
-  folder). It is never committed to this repo and never sent anywhere except the API endpoint
-  you configure.
-- The agent's file/command tools run on **your machine**; *Read Only* is the default approval
-  mode, and edits / commands ask for confirmation unless you switch to Auto/Full.
+- **API Key 只存在本机**(WebView2 用户数据目录下的 `localStorage`),不会提交进仓库,
+  也只会发往你自己配置的接口。
+- Agent 的文件/命令工具在 **你的机器上** 运行;默认审批模式是 *只读*,改文件/跑命令都会
+  先询问,除非你切到 自动/完全访问。
 
 ---
 
-## Project layout
+## 项目结构
 
 ```
-native/main.cpp     C++ WebView2 shell (adds http.stream streaming + ConPTY pty.* commands)
-src/api.ts          TS wrappers for the native commands
-src/lib/            deepseek.ts (stream client) · useChat.ts (turn loop, tools, approvals,
-                    sub-agents, checkpoints) · tools.ts · office.ts · skills.ts · storage.ts
+native/main.cpp     C++ WebView2 壳(新增 http.stream 流式 + ConPTY pty.* 命令)
+src/api.ts          原生命令的 TS 封装
+src/lib/            deepseek.ts(流式客户端)· useChat.ts(回合循环、工具、审批、
+                    子代理、检查点)· tools.ts · office.ts · skills.ts · storage.ts
 src/components/     TitleBar / Sidebar / ChatView / Message / PreviewPanel / TerminalPanel /
                     Settings / Composer / CommandPalette / ShortcutsPanel …
-scripts/            setup / dev / build / package (Bun)
+scripts/            setup / dev / build / package(Bun)
 ```
 
-## License
+---
 
-[MIT](LICENSE). Built on the QiangQiang (强强) native shell framework.
+## ☕ 支持作者
+
+如果这个项目对你有帮助,欢迎请我喝杯咖啡,非常感谢 ❤️
+
+- ⭐ 给个 Star：<https://github.com/kobolingfeng/deepseek-desktop>
+- 💳 PayPal：<https://paypal.me/koboling>
+- 💚 微信赞赏：
+
+<img src="assets/wechat-reward.jpg" alt="微信赞赏码" width="220">
+
+---
+
+## 许可
+
+[MIT](LICENSE)。基于 强强(QiangQiang)原生壳框架构建。
