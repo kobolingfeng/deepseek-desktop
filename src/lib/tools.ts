@@ -400,9 +400,12 @@ function psEncode(script: string): string {
   return btoa(bin);
 }
 
-// PowerShell serializes its error stream to a redirected stderr/pipe as CLIXML; drop it.
+// PowerShell serializes its error stream to a redirected pipe as CLIXML:
+// "#< CLIXML\r\n<Objs ...>…</Objs>". Strip only that exact shape so real program output
+// that merely contains the text isn't deleted. (A block split across reads may leak —
+// acceptable; better than eating genuine output.)
 function stripClixml(s: string): string {
-  return s.replace(/#< CLIXML[\s\S]*?<\/Objs>/g, '').replace(/^#< CLIXML\s*$/gm, '');
+  return s.replace(/#< CLIXML\s*<Objs\b[\s\S]*?<\/Objs>/g, '');
 }
 
 // Format a session read for the model: output + a status line with the next-step hint.
@@ -886,9 +889,12 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       if (!cmd) throw new Error('command is required');
       const wd = (settings.workingDir || '').replace(/"/g, '').trim();
       // Run via PowerShell (like Codex). -EncodedCommand (base64 of UTF-16LE) sidesteps
-      // all shell quoting; `& { } 2>&1` returns output+errors as plain text and
-      // `exit $LASTEXITCODE` propagates native exit codes. cwd = the process CWD.
-      const b64 = psEncode(`& {\n${cmd}\n} 2>&1\nexit $LASTEXITCODE`);
+      // all shell quoting; `& { } 2>&1` returns output+errors as plain text. Native
+      // commands set $LASTEXITCODE; a pure-cmdlet error leaves it $null, so fall back to
+      // $error.Count so a failing cmdlet (e.g. Get-Item missing) reports nonzero, not 0.
+      const b64 = psEncode(
+        `& {\n${cmd}\n} 2>&1\n$ec = $LASTEXITCODE\nif ($null -eq $ec) { $ec = $(if ($error.Count) { 1 } else { 0 }) }\nexit $ec`,
+      );
       const r = await shell.run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', b64], ctx.cancelId, wd || undefined);
       let out = (r.stdout || '').trim();
       // PowerShell serializes its error stream to stderr as CLIXML noise — drop it

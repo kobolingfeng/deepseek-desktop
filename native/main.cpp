@@ -2654,12 +2654,19 @@ static void reg_extras() {
             if (it != g_sessions.end()) s = it->second;
         }
         if (!s) return json{{"ok", false}, {"error", "session not found"}};
+        if (s->exited.load()) return json{{"ok", false}, {"exited", true}};
         if (newline) input += "\r\n";
-        std::lock_guard<std::mutex> lk(s->stdinMutex);
-        if (!s->stdinOpen) return json{{"ok", false}, {"exited", true}};
-        DWORD wr = 0;
-        BOOL w = WriteFile(s->hStdinW, input.data(), (DWORD)input.size(), &wr, nullptr);
-        return json{{"ok", (bool)w}};
+        // Write OFF the UI thread: if the child has stopped reading, a full stdin pipe
+        // would block WriteFile indefinitely; doing it here would hang the whole UI and
+        // even kill (which needs stdinMutex) couldn't recover. The detached worker holds
+        // a shared_ptr so the session stays alive; kill()'s killTree releases a stuck write.
+        std::thread([s, input]() {
+            std::lock_guard<std::mutex> lk(s->stdinMutex);
+            if (!s->stdinOpen) return;
+            DWORD wr = 0;
+            WriteFile(s->hStdinW, input.data(), (DWORD)input.size(), &wr, nullptr);
+        }).detach();
+        return json{{"ok", true}};
     });
 
     // Drain a session's accumulated output and report whether it has exited.
@@ -2700,6 +2707,11 @@ static void reg_extras() {
             }
         }
         if (!s) return json{{"ok", false}, {"error", "session not found"}};
+        // Kill the process tree FIRST: this closes the child's stdin-read end, releasing
+        // any worker blocked in WriteFile on a full pipe so it can drop stdinMutex —
+        // THEN we can take the mutex and close our stdin handle without deadlocking.
+        DWORD pid = s->pid;
+        if (pid) killTree(pid);
         {
             std::lock_guard<std::mutex> lk(s->stdinMutex);
             if (s->stdinOpen) {
@@ -2707,8 +2719,6 @@ static void reg_extras() {
                 s->stdinOpen = false;
             }
         }
-        DWORD pid = s->pid;
-        if (pid) killTree(pid);
         return json{{"ok", true}};
     });
 }

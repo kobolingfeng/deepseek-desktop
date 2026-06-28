@@ -71,7 +71,9 @@ export function parsePatch(text: string): PatchOp[] {
       let cur: HunkLine[] | null = null;
       while (i < raw.length && !isHeader(raw[i])) {
         const l = raw[i];
-        if (/^@@/.test(l)) {
+        if (/^\*\*\* End of File\s*$/.test(l)) {
+          // Codex EOF marker — not part of the content; ignore it.
+        } else if (/^@@/.test(l)) {
           cur = [];
           sections.push(cur);
         } else {
@@ -145,33 +147,49 @@ export function applySections(content: string, sections: HunkLine[][]): string {
     const oldBlock = sec.filter((h) => h.t !== '+').map((h) => h.s);
     let newBlock = sec.filter((h) => h.t !== '-').map((h) => h.s);
     if (!oldBlock.length) {
-      lines = lines.concat(newBlock); // pure addition with no context → append
+      // pure addition with no context → append at end, but BEFORE a trailing empty line
+      // left by a final newline (content.split('\n') yields a '' sentinel) so we don't
+      // introduce a blank gap.
+      const end = lines.length && lines[lines.length - 1] === '' ? lines.length - 1 : lines.length;
+      lines = [...lines.slice(0, end), ...newBlock, ...lines.slice(end)];
       continue;
     }
-    // tier 1: exact match. If the context appears more than once it's ambiguous — error
-    // (forcing the model to add more context) rather than silently editing the wrong spot.
+    const ambiguous = (n: number) =>
+      new Error(
+        `context is ambiguous — it appears ${n} times; include more surrounding unchanged lines to pin the exact location:\n` +
+          oldBlock.slice(0, 4).join('\n'),
+      );
+    // Try increasingly lenient matches, but reject when ANY tier finds the block in more
+    // than one place — editing the first of several matches would silently corrupt.
+    let at: number;
     const exact = countMatches(lines, oldBlock);
-    if (exact > 1)
-      throw new Error(
-        `context is ambiguous — it appears ${exact} times; include more surrounding unchanged lines to pin the exact location:\n` +
-          oldBlock.slice(0, 4).join('\n'),
-      );
-    // tier 2: ignore trailing whitespace.
-    let at = exact === 1 ? indexOfBlock(lines, oldBlock) : indexOfBlock(lines.map(rtrim), oldBlock.map(rtrim));
-    if (at >= 0) {
-      lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
-      continue;
+    if (exact > 1) throw ambiguous(exact);
+    if (exact === 1) {
+      at = indexOfBlock(lines, oldBlock); // tier 1: exact
+    } else {
+      // tier 2: ignore trailing whitespace
+      const rl = lines.map(rtrim);
+      const ro = oldBlock.map(rtrim);
+      const n2 = countMatches(rl, ro);
+      if (n2 > 1) throw ambiguous(n2);
+      if (n2 === 1) {
+        at = indexOfBlock(rl, ro);
+      } else {
+        // tier 3: ignore leading+trailing whitespace, then re-indent the replacement
+        const tl = lines.map((s) => s.trim());
+        const to = oldBlock.map((s) => s.trim());
+        const n3 = countMatches(tl, to);
+        if (n3 > 1) throw ambiguous(n3);
+        at = indexOfBlock(tl, to);
+        if (at < 0)
+          throw new Error(
+            'could not locate the context in the file — re-read the file and copy the surrounding unchanged lines EXACTLY (with their original indentation). Looked for:\n' +
+              oldBlock.slice(0, 4).join('\n'),
+          );
+        const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
+        if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
+      }
     }
-    // tier 3: match ignoring leading+trailing whitespace (models often mis-indent the
-    // context), then re-indent the replacement to the file's real indentation.
-    at = indexOfBlock(lines.map((s) => s.trim()), oldBlock.map((s) => s.trim()));
-    if (at < 0)
-      throw new Error(
-        'could not locate the context in the file — re-read the file and copy the surrounding unchanged lines EXACTLY (with their original indentation). Looked for:\n' +
-          oldBlock.slice(0, 4).join('\n'),
-      );
-    const delta = leadWs(lines[at]).length - leadWs(oldBlock[0]).length;
-    if (delta !== 0) newBlock = newBlock.map((s) => reindent(s, delta));
     lines = [...lines.slice(0, at), ...newBlock, ...lines.slice(at + oldBlock.length)];
   }
   return lines.join('\n');
