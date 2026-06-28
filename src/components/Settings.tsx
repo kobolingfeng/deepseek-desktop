@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, Star, Heart } from 'lucide-react';
 import { dialog, shell } from '../api';
 import wechatQr from '../../assets/wechat-reward.jpg?inline';
+import appCfg from '../../app.config.json';
 import { DEFAULT_SYSTEM_PROMPT, type Lang, type ThemePref, type ToolPerm } from '../lib/types';
 import { LANGUAGES, useI18n } from '../lib/i18n';
 import { TOOL_LIST, deriveApprovalMode } from '../lib/tools';
@@ -373,7 +374,7 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
               <div className="about-reward-label">{t('aboutWechat')}</div>
               <img className="about-qr" src={wechatQr} alt={t('aboutWechat')} width={200} height={200} />
             </div>
-            <p className="about-foot">{t('about')}</p>
+            <p className="about-foot">v{appCfg.version} · {t('about')}</p>
           </div>
         </div>
 

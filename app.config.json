@@ -1,4 +1,7 @@
 {
+    "name": "DSDesktop",
+    "productName": "DeepSeek Desktop",
+    "version": "1.0.0",
     "window": {
         "title": "DeepSeek",
         "width": 1120,

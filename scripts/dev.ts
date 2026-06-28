@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, watch } from 'fs';
 import { join, resolve } from 'path';
 import { createServer } from 'net';
 import { splitCommandLine, withResolvedDevServerPort } from './dev-utils';
+import { EXE_NAME } from './app-meta';
 
 const ROOT = resolve(import.meta.dir, '..');
 const DIST = join(ROOT, 'dist');
@@ -45,7 +46,7 @@ async function pickPort(preferred: number) {
 PORT = await pickPort(PORT);
 
 // ── Check native exe ──────────────────────────────────
-const exePath = join(DIST, 'app.exe');
+const exePath = join(DIST, EXE_NAME);
 if (!existsSync(exePath)) {
     console.log('Native shell not found. Building native only...\n');
     const r = Bun.spawnSync(['bun', 'run', 'build:native'], { cwd: ROOT, stdout: 'inherit', stderr: 'inherit' });

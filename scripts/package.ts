@@ -2,6 +2,7 @@
 import { execFileSync, execSync } from 'child_process';
 import { mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { EXE_NAME } from './app-meta';
 
 const root = join(import.meta.dir, '..');
 const dist = join(root, 'dist');
@@ -52,7 +53,7 @@ const zipPath = join(out, zipName);
 console.log(`📦 Packaging → release/${zipName}`);
 
 if (singleExe) {
-    compressArchive(join(dist, 'app.exe'), zipPath);
+    compressArchive(join(dist, EXE_NAME), zipPath);
 } else {
     compressArchive(join(dist, '*'), zipPath, false);
 }

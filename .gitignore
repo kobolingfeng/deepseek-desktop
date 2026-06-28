@@ -5,6 +5,8 @@ node_modules/
 native/build/
 native/_embedded.*
 native/app.res
+native/app-*.rc
+native/icon_preview.png
 *.log
 *.exe
 *.obj

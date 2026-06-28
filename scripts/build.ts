@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { execSync } from 'child_process';
+import { EXE_NAME, APP_VERSION, PRODUCT_NAME } from './app-meta';
 
 const ROOT = resolve(import.meta.dir, '..');
 const DIST = join(ROOT, 'dist');
@@ -185,13 +186,45 @@ const vcvarsall = join(vsPath, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat');
 
 // ── 3. Generate resource file for single-exe ──────────
 const mainCpp = join(ROOT, 'native', 'main.cpp');
-const outExe  = join(DIST, 'app.exe');
+const outExe  = join(DIST, EXE_NAME);
 const buildMode = singleExe ? 'single' : 'portable';
 const nativeBuildDir = join(ROOT, 'native', 'build', buildMode);
 mkdirSync(nativeBuildDir, { recursive: true });
 const rcFile  = join(ROOT, 'native', `app-${buildMode}.rc`);
 const icoFile = join(ROOT, 'native', 'app.ico');
 const resFile = join(ROOT, 'native', `app-${buildMode}.res`);
+
+// VERSIONINFO block (shows in the exe's Properties → Details) from app.config.json version.
+const verParts = APP_VERSION.split('.').map((n) => parseInt(n, 10) || 0).concat([0, 0, 0, 0]).slice(0, 4);
+const verComma = verParts.join(',');
+const rcEsc = (s: string) => s.replace(/"/g, '\\"');
+const versionRc = [
+    '1 VERSIONINFO',
+    `FILEVERSION ${verComma}`,
+    `PRODUCTVERSION ${verComma}`,
+    'FILEFLAGSMASK 0x3fL',
+    'FILEFLAGS 0x0L',
+    'FILEOS 0x40004L',
+    'FILETYPE 0x1L',
+    'BEGIN',
+    '  BLOCK "StringFileInfo"',
+    '  BEGIN',
+    '    BLOCK "040904b0"',
+    '    BEGIN',
+    '      VALUE "CompanyName", "kobolingfeng"',
+    `      VALUE "FileDescription", "${rcEsc(PRODUCT_NAME)}"`,
+    `      VALUE "FileVersion", "${rcEsc(APP_VERSION)}"`,
+    `      VALUE "ProductName", "${rcEsc(PRODUCT_NAME)}"`,
+    `      VALUE "ProductVersion", "${rcEsc(APP_VERSION)}"`,
+    `      VALUE "OriginalFilename", "${rcEsc(EXE_NAME)}"`,
+    '    END',
+    '  END',
+    '  BLOCK "VarFileInfo"',
+    '  BEGIN',
+    '    VALUE "Translation", 0x409, 1200',
+    '  END',
+    'END',
+].join('\n');
 
 if (singleExe) {
     const pakFile    = join(ROOT, 'native', `_embedded-${buildMode}.pak`);
@@ -207,7 +240,7 @@ if (singleExe) {
             const rel = prefix ? prefix + '/' + entry.name : entry.name;
             if (entry.isDirectory()) {
                 if (!skipDirs.has(entry.name)) collectFiles(full, rel);
-            } else if (entry.name !== 'app.exe' && entry.name !== 'app.config.json') {
+            } else if (entry.name !== EXE_NAME && entry.name !== 'app.exe' && entry.name !== 'app.config.json') {
                 distFiles.push({ path: rel, data: readFileSync(full) });
             }
         }
@@ -278,12 +311,16 @@ if (singleExe) {
         ...(existsSync(icoFile) ? ['IDI_APP ICON "app.ico"'] : []),
         `IDR_HTML   RCDATA "_embedded-${buildMode}.pak"`,
         `IDR_CONFIG RCDATA "_embedded-${buildMode}.json"`,
+        versionRc,
     ].join('\n');
     writeFileSync(rcFile, rcContent, 'utf-8');
 } else {
-    if (existsSync(icoFile)) {
-        writeFileSync(rcFile, '#include "resource.h"\nIDI_APP ICON "app.ico"\n', 'utf-8');
-    }
+    const rcContent = [
+        '#include "resource.h"',
+        ...(existsSync(icoFile) ? ['IDI_APP ICON "app.ico"'] : []),
+        versionRc,
+    ].join('\n');
+    writeFileSync(rcFile, rcContent, 'utf-8');
 }
 
 let linkRes = '';
@@ -352,5 +389,5 @@ if (singleExe) {
 } else {
     console.log(`\n✅ Build complete → ${DIST}`);
     console.log('   Run: bun run dev');
-    console.log('   Or:  dist\\app.exe');
+    console.log('   Or:  dist\\' + EXE_NAME);
 }

@@ -1,10 +1,11 @@
 {
   "name": "deepseek-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "setup": "bun scripts/setup.ts",
+    "icon": "python scripts/make-icon.py",
     "dev": "bun scripts/dev.ts",
     "build": "bun scripts/build.ts",
     "build:native": "bun scripts/build.ts --native-only",
