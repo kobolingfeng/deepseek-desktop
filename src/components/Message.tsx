@@ -193,9 +193,11 @@ function EditedFileRow({ change }: { change: FileChange }) {
 export function Message({
   message,
   toolResults,
+  cwd,
 }: {
   message: Msg;
   toolResults: Map<string, Msg>;
+  cwd?: string;
 }) {
   const { t, lang } = useI18n();
 
@@ -248,7 +250,7 @@ export function Message({
           <ToolCallCard key={tc.id || `${tc.name}:${i}`} call={tc} result={tc.id ? toolResults.get(tc.id) : undefined} />
         ))}
 
-        {message.content && <Markdown text={message.content} highlight={!streaming} />}
+        {message.content && <Markdown text={message.content} highlight={!streaming} cwd={cwd} />}
 
         {message.error && (
           <div className="msg-error">

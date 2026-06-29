@@ -77,9 +77,12 @@ export function App() {
     document.documentElement.style.setProperty('zoom', String(controller.zoom));
   }, [controller.sidebarWidth, controller.zoom]);
 
-  // System tray: clicking the tray icon restores + shows the window.
+  // System tray: clicking the tray icon restores + shows the window; the native right-click
+  // menu (Show / Exit) is labelled in the current UI language.
   useEffect(() => {
-    tray.create('DeepSeek').catch(() => {});
+    const lbl =
+      controller.settings.language === 'zh' ? { show: '显示', exit: '退出' } : { show: 'Show', exit: 'Exit' };
+    tray.create('DeepSeek', lbl).catch(() => {});
     const reveal = () => {
       win.restore().catch(() => {});
       win.show().catch(() => {});

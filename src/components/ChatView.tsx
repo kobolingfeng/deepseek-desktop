@@ -187,7 +187,7 @@ export function ChatView({
               </div>
             )}
             {visible.map((m) => (
-              <Message key={m.id} message={m} toolResults={toolResults} />
+              <Message key={m.id} message={m} toolResults={toolResults} cwd={activeCwd} />
             ))}
             {/* ONE continuous status line for the whole turn: only the label text swaps
                 (Thinking ↔ Searching ↔ Running) and the timer keeps counting, so the

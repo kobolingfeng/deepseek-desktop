@@ -349,10 +349,12 @@ export async function officePreviewHtml(p: string): Promise<string> {
 
   const text = await readOffice(p);
   if (ext === 'pptx') {
-    // readPptx output is "# Slide N\n<lines>": render each slide as a 16:9 card with the
-    // first line as the title and the rest as bullets (mirrors how we generate decks).
+    // readPptx output is "# Slide N\n<lines>". Show ONE slide at a time at full 16:9 with a page
+    // pager — not a vertical stack of squished slides. Pure CSS (radios) so it works in the
+    // sandboxed (script-less) preview iframe.
     const slides = text.split(/\n(?=# Slide )/).filter((s) => s.trim());
-    const cards = slides.map((s, i) => {
+    const n = slides.length;
+    const card = (s: string, i: number) => {
       const lines = s
         .replace(/^# Slide \d+\n?/, '')
         .split('\n')
@@ -361,13 +363,29 @@ export async function officePreviewHtml(p: string): Promise<string> {
       const title = lines[0] || '';
       const rest = lines.slice(1);
       return (
-        `<div class="o-slide"><span class="o-slide-no">${i + 1}</span>` +
+        `<div class="o-slide"><span class="o-slide-no">${i + 1} / ${n}</span>` +
         (title ? `<div class="o-slide-title">${escHtml(title)}</div>` : '') +
         (rest.length ? `<ul class="o-slide-body">${rest.map((l) => `<li>${escHtml(l)}</li>`).join('')}</ul>` : '') +
         `</div>`
       );
-    });
-    return `<div class="o-deck">${cards.join('')}</div>`;
+    };
+    if (n <= 1)
+      return `<div class="o-deck">${slides.map(card).join('') || '<div class="o-empty">(no slides)</div>'}</div>`;
+    // One radio per slide; the inline :checked rules reveal that one slide and highlight its
+    // page number (mirrors the multi-sheet xlsx view).
+    const rules = slides
+      .map(
+        (_, i) =>
+          `#sl${i}:checked~.o-pager label[for=sl${i}]{background:#5b74f3;color:#fff;border-color:#5b74f3;}` +
+          `#sl${i}:checked~.o-slides .o-slide:nth-child(${i + 1}){display:flex;}`,
+      )
+      .join('');
+    const radios = slides
+      .map((_, i) => `<input type="radio" class="o-slr" name="oslide" id="sl${i}"${i === 0 ? ' checked' : ''}>`)
+      .join('');
+    const pager = slides.map((_, i) => `<label for="sl${i}">${i + 1}</label>`).join('');
+    const cards = slides.map(card).join('');
+    return `<style>${rules}</style><div class="o-deck paged">${radios}<div class="o-pager">${pager}</div><div class="o-slides">${cards}</div></div>`;
   }
   return '<pre class="o-text">' + escHtml(text) + '</pre>';
 }

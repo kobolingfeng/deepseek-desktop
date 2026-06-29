@@ -210,7 +210,8 @@ export const app = {
 // ── Tray ──────────────────────────────────────
 
 export const tray = {
-    create:        (tooltip = 'App') => invoke<boolean>('tray.create', { tooltip }),
+    create:        (tooltip = 'App', labels?: { show?: string; exit?: string }) =>
+        invoke<boolean>('tray.create', { tooltip, showLabel: labels?.show, exitLabel: labels?.exit }),
     setTooltip:    (tooltip: string) => invoke<boolean>('tray.setTooltip', { tooltip }),
     remove:        () => invoke<boolean>('tray.remove'),
     onClick:       (handler: () => void) => on('tray.click', handler),

@@ -65,24 +65,32 @@ function CodeBlock({ children, ...props }: { children?: ReactNode }) {
 function isHttp(h: string): boolean {
   return /^https?:\/\//i.test(h);
 }
+// File extensions the agent commonly creates/links, so a BARE filename like "Deck.pptx"
+// (no directory separator) is still treated as a file rather than an opaque URL.
+const FILE_EXT = new Set([
+  'pptx', 'ppt', 'docx', 'doc', 'xlsx', 'xls', 'xlsm', 'csv', 'pdf',
+  'md', 'txt', 'json', 'yaml', 'yml', 'xml', 'html', 'htm', 'css',
+  'js', 'ts', 'tsx', 'jsx', 'py', 'sh', 'bat', 'ps1', 'c', 'cpp', 'h', 'rs', 'go', 'java', 'sql', 'log', 'ini', 'toml',
+  'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'zip',
+]);
 function isFileish(h: string): boolean {
-  return (
-    /^[a-zA-Z]:[\\/]/.test(h) ||
-    h.startsWith('\\\\') ||
-    /^file:/i.test(h) ||
-    (/[\\/]/.test(h) && !h.includes('://') && !h.startsWith('#') && !/^mailto:/i.test(h))
-  );
+  if (/^[a-zA-Z]:[\\/]/.test(h) || h.startsWith('\\\\') || /^file:/i.test(h)) return true;
+  if (/[\\/]/.test(h) && !h.includes('://') && !h.startsWith('#') && !/^mailto:/i.test(h)) return true;
+  // bare "name.ext" with a known file extension — the common case for a file the agent just
+  // created and linked by name (no path), which otherwise fell through to the URL branch.
+  const m = /^[^\s/\\?#:]+\.([A-Za-z0-9]{1,9})$/.exec(h);
+  return !!m && FILE_EXT.has(m[1].toLowerCase());
 }
-function resolveAbs(p: string): string {
+function resolveAbs(p: string, cwd?: string): string {
   if (/^file:/i.test(p)) p = decodeURIComponent(p.replace(/^file:\/*/i, ''));
   if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p.replace(/\//g, '\\');
-  const wd = loadSettings().workingDir;
+  const wd = cwd || loadSettings().workingDir; // prefer the conversation's working dir
   return (wd ? wd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '') : p).replace(/\//g, '\\');
 }
 
 // Render links to local files / local servers as clickable blue links: left-click
 // opens them; right-click shows a context menu (open / reveal / copy).
-function ExternalLink({ href, children }: { href?: string; children?: ReactNode }) {
+function ExternalLink({ href, children, cwd }: { href?: string; children?: ReactNode; cwd?: string }) {
   const { t } = useI18n();
   if (!href) return <>{children}</>;
   // Markdown link destinations are percent-encoded by the parser (\ → %5C, CJK → %..),
@@ -96,7 +104,7 @@ function ExternalLink({ href, children }: { href?: string; children?: ReactNode 
   };
   const target = href.includes('%') ? safeDecode(href) : href;
   const file = !isHttp(target) && isFileish(target);
-  const abs = file ? resolveAbs(target) : href;
+  const abs = file ? resolveAbs(target, cwd) : href;
   const parent = file ? abs.replace(/[\\/][^\\/]*$/, '') || abs : '';
 
   const openFile = async () => {
@@ -212,9 +220,11 @@ function rehypeFilePaths() {
 export const Markdown = memo(function Markdown({
   text,
   highlight = true,
+  cwd,
 }: {
   text: string;
   highlight?: boolean;
+  cwd?: string;
 }) {
   return (
     <div className="markdown">
@@ -224,7 +234,7 @@ export const Markdown = memo(function Markdown({
         // Default urlTransform drops "C:\..." (looks like an unknown protocol); allow
         // file paths through, block only dangerous schemes (we open via shell, not navigate).
         urlTransform={(url) => (/^\s*(javascript|data|vbscript):/i.test(url) ? '' : url)}
-        components={{ pre: CodeBlock as any, a: ExternalLink as any }}
+        components={{ pre: CodeBlock as any, a: ((props: any) => <ExternalLink {...props} cwd={cwd} />) as any }}
       >
         {text}
       </ReactMarkdown>

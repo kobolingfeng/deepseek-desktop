@@ -234,6 +234,12 @@ function PreviewTab({ controller }: { controller: ChatController }) {
   .o-slide-title{font-size:clamp(17px,3.4vw,30px);font-weight:700;color:#1a1a1a;line-height:1.2;margin-bottom:.55em;}
   .o-slide-body{margin:0;padding-left:1.15em;font-size:clamp(12px,2vw,18px);line-height:1.55;color:#333;}
   .o-slide-body li{margin:.28em 0;}
+  .o-slr{position:absolute;width:0;height:0;opacity:0;pointer-events:none;}
+  .o-deck.paged{gap:12px;}
+  .o-deck.paged .o-slide{display:none;}
+  .o-slides{display:block;}
+  .o-pager{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;}
+  .o-pager label{min-width:28px;text-align:center;padding:4px 9px;font-size:12px;color:#555;cursor:pointer;border:1px solid #d4d4d4;border-radius:6px;background:#ececed;user-select:none;}
   .o-doc{max-width:820px;margin:0 auto;background:#fff;padding:32px 40px;border-radius:5px;box-shadow:0 1px 6px rgba(0,0,0,.09);}
   .o-doc h1{font-size:23px;margin:.3em 0 .5em;} .o-doc h2{font-size:18px;margin:1em 0 .4em;} .o-doc h3{font-size:15px;margin:.9em 0 .35em;}
   .o-doc p{margin:.5em 0;} .o-doc ul,.o-doc ol{margin:.5em 0;padding-left:1.6em;} .o-doc li{margin:.2em 0;}

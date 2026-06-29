@@ -445,7 +445,7 @@ export function Composer({
                 disabled={disabled}
               />
               {generating ? (
-                <button className="send-btn stop" onClick={onStop} title={t('stop')}>
+                <button className="send-btn stop" onClick={() => onStop()} title={t('stop')}>
                   <span className="stop-square" />
                 </button>
               ) : (

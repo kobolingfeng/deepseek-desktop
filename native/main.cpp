@@ -265,6 +265,8 @@ static std::unordered_map<std::string, bool> g_permissions; // cmd -> allowed
 #define WM_TRAYICON (WM_USER + 1)
 static NOTIFYICONDATAW g_nid = {};
 static bool            g_trayActive = false;
+static std::wstring    g_trayShow = L"显示"; // tray right-click menu labels (overridden by JS)
+static std::wstring    g_trayExit = L"退出";
 static HICON           g_appIconLarge = nullptr;
 static HICON           g_appIconSmall = nullptr;
 
@@ -1859,6 +1861,8 @@ static void reg_tray() {
         g_nid.hIcon            = g_appIconSmall ? g_appIconSmall : LoadIconW(nullptr, IDI_APPLICATION);
         auto tip = U2W(a.value("tooltip", std::string{"App"}));
         wcsncpy_s(g_nid.szTip, tip.c_str(), _TRUNCATE);
+        g_trayShow = U2W(a.value("showLabel", std::string{"显示"}));
+        g_trayExit = U2W(a.value("exitLabel", std::string{"退出"}));
         Shell_NotifyIconW(NIM_ADD, &g_nid);
         g_trayActive = true;
         return true;
@@ -3512,7 +3516,30 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             showWindowAnimated(g_hwnd, IsIconic(g_hwnd) ? SW_RESTORE : SW_SHOW);
             ipc_emit("tray.doubleClick");
             break;
-        case WM_RBUTTONUP:    ipc_emit("tray.rightClick"); break;
+        case WM_RBUTTONUP: {
+            // Native popup menu so it works even while the window is hidden to tray (a JS/DOM
+            // menu can't render then). "Show" restores the window; "Exit" truly quits.
+            ipc_emit("tray.rightClick");
+            HMENU menu = CreatePopupMenu();
+            AppendMenuW(menu, MF_STRING, 1, g_trayShow.c_str());
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, 2, g_trayExit.c_str());
+            POINT pt; GetCursorPos(&pt);
+            SetForegroundWindow(g_hwnd); // MSDN: required so the menu dismisses on click-away
+            int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY,
+                                     pt.x, pt.y, 0, g_hwnd, nullptr);
+            PostMessageW(g_hwnd, WM_NULL, 0, 0); // MSDN workaround for the tray menu
+            DestroyMenu(menu);
+            if (cmd == 1) {
+                showWindowAnimated(g_hwnd, IsIconic(g_hwnd) ? SW_RESTORE : SW_SHOW);
+                SetForegroundWindow(g_hwnd);
+            } else if (cmd == 2) {
+                Shell_NotifyIconW(NIM_DELETE, &g_nid);
+                g_trayActive = false; // so WM_CLOSE destroys the window instead of hiding to tray
+                PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
+            }
+            break;
+        }
         }
         return 0;
 
