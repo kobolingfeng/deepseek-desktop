@@ -5,6 +5,14 @@ import type { Settings, ToolCall, ToolPerm } from './types';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
 
+// Crude ReDoS guard: flags the classic exponential-backtracking shape — a quantified group
+// whose body itself contains a quantifier, e.g. (a+)+, (\w+)*, (a|b{2,})+. The search matcher
+// runs synchronously per line, and a per-line catastrophic match can't be interrupted by the
+// scan deadline, so reject these up front rather than freeze the renderer.
+function looksCatastrophic(src: string): boolean {
+  return /\([^)]*[+*}][^)]*\)\s*[+*{]/.test(src);
+}
+
 /** Tool registry: drives the model schema, the permissions UI, and defaults. */
 export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_file', defaultPerm: 'allow' },
@@ -958,6 +966,8 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
     case 'search_files': {
       const q = String(args.query || '');
       if (!q) throw new Error('query is required');
+      if (looksCatastrophic(q))
+        throw new Error('pattern may cause catastrophic backtracking; simplify it (avoid nested quantifiers like (a+)+)');
       let re: RegExp;
       try {
         re = new RegExp(q, 'i');

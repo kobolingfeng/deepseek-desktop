@@ -1307,8 +1307,10 @@ export function useChat() {
       turn.approvalResolver = null;
       turn.pendingApproval = null;
       turn.skillHint = undefined;
-      // Keep the turn's checkpoint (its file snapshots) so the user can undo this turn's edits.
-      if (checkpoint.files.size > 0) {
+      // Keep the turn's checkpoint (its file snapshots) so the user can undo this turn's edits —
+      // but only if the conversation still exists. (deleteConversation already dropped its
+      // checkpoints; re-adding here would orphan large snapshots in memory.)
+      if (checkpoint.files.size > 0 && convsRef.current.some((c) => c.id === conv.id)) {
         const arr = checkpointsRef.current.get(conv.id) || [];
         arr.push(checkpoint);
         checkpointsRef.current.set(conv.id, arr);

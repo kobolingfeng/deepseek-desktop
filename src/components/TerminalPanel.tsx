@@ -37,7 +37,7 @@ export function TerminalPanel({ cwd }: { cwd?: string }) {
     }
 
     let ptyId: number | null = null;
-    let poll: number | null = null;
+    let pollTimer: number | null = null;
     let disposed = false;
 
     shell.pty
@@ -51,23 +51,25 @@ export function TerminalPanel({ cwd }: { cwd?: string }) {
         term.onData((d) => {
           if (ptyId != null) shell.pty.write(ptyId, d).catch(() => {});
         });
-        poll = window.setInterval(async () => {
-          if (ptyId == null) return;
+        // Single-flight poll: schedule the next read only AFTER the current one resolves (so slow
+        // IPC reads can't pile up), and bail immediately if the panel was disposed mid-await.
+        const pump = async () => {
+          if (disposed || ptyId == null) return;
           try {
             const r = await shell.pty.read(ptyId);
+            if (disposed) return;
             if (r.output) term.write(r.output);
             if (r.exited) {
-              if (poll) window.clearInterval(poll);
-              poll = null;
               term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n');
-              // Reap now: native only auto-reaps on an EMPTY final read, so a final read that
-              // still carried output would otherwise leave the pty + HPCON around until unmount.
-              if (ptyId != null) shell.pty.kill(ptyId).catch(() => {});
+              shell.pty.kill(ptyId).catch(() => {});
+              return; // stop the loop (native reaps the pty on this exited read)
             }
           } catch {
-            /* transient */
+            if (disposed) return;
           }
-        }, 60);
+          pollTimer = window.setTimeout(pump, 60);
+        };
+        pump();
       })
       .catch(() => term.write('\x1b[31mFailed to start terminal.\x1b[0m\r\n'));
 
@@ -84,7 +86,7 @@ export function TerminalPanel({ cwd }: { cwd?: string }) {
     return () => {
       disposed = true;
       ro.disconnect();
-      if (poll) window.clearInterval(poll);
+      if (pollTimer) window.clearTimeout(pollTimer);
       if (ptyId != null) shell.pty.kill(ptyId).catch(() => {});
       term.dispose();
     };

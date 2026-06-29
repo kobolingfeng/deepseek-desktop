@@ -2560,6 +2560,20 @@ static void reg_extras() {
     static std::unordered_map<int, std::shared_ptr<Session>> g_sessions;
     static std::atomic<int> g_nextSessionId{1};
 
+    // Child processes (sessions + ptys) join this Job so the OS kills them when the app exits —
+    // Windows does NOT kill children on parent exit, so without this a closed app leaves orphan
+    // powershell/shells running. KILL_ON_JOB_CLOSE: when our last handle to the job goes away
+    // (process teardown, even on crash), the whole job is terminated.
+    static HANDLE g_childJob = []() -> HANDLE {
+        HANDLE j = CreateJobObjectW(nullptr, nullptr);
+        if (j) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(j, JobObjectExtendedLimitInformation, &info, sizeof(info));
+        }
+        return j;
+    }();
+
     ipc_on("shell.session.start", [](const json& a) -> json {
         auto program = a.value("program", std::string{});
         if (program.empty()) throw std::runtime_error("program is required");
@@ -2607,6 +2621,7 @@ static void reg_extras() {
             throw std::runtime_error("failed to start process");
         }
         CloseHandle(pi.hThread); // never used
+        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess); // killed on app exit
 
         auto s = std::make_shared<Session>();
         s->pid = pi.dwProcessId;
@@ -2701,7 +2716,7 @@ static void reg_extras() {
         bool exited = s->exited.load();
         json r{{"ok", true}, {"output", to_utf8_console(out)}, {"exited", exited}};
         if (exited) r["exitCode"] = (int)s->exitCode.load();
-        if (exited && out.empty()) { // reap a finished, fully-drained session
+        if (exited) { // reap on the first exited read (we already swapped out the final output)
             std::lock_guard<std::mutex> lk(g_sessMutex);
             g_sessions.erase(id);
         }
@@ -2727,7 +2742,9 @@ static void reg_extras() {
         // and close our stdin handle without deadlocking. The thread holds a shared_ptr.
         std::thread([s]() {
             DWORD pid = s->pid;
-            if (pid) killTree(pid);
+            // Don't taskkill an already-exited process: its handle is closed and the PID may
+            // have been recycled by the OS — killTree could hit an unrelated process.
+            if (pid && !s->exited.load()) killTree(pid);
             std::lock_guard<std::mutex> lk(s->stdinMutex);
             if (s->stdinOpen) {
                 CloseHandle(s->hStdinW);
@@ -2825,6 +2842,7 @@ static void reg_extras() {
             throw std::runtime_error("failed to start pty process");
         }
         CloseHandle(pi.hThread);
+        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess); // killed on app exit
 
         auto p = std::make_shared<Pty>();
         p->pid = pi.dwProcessId;
@@ -2911,7 +2929,7 @@ static void reg_extras() {
         bool exited = p->exited.load();
         json r{{"ok", true}, {"output", to_utf8_console(out)}, {"exited", exited}};
         if (exited) r["exitCode"] = (int)p->exitCode.load();
-        if (exited && out.empty()) { // reap a finished, fully-drained pty (closes the console)
+        if (exited) { // reap on the first exited read (final output already swapped out above)
             std::lock_guard<std::mutex> lk(g_ptyMutex);
             {
                 std::lock_guard<std::mutex> hl(p->hpcMutex);
@@ -2952,7 +2970,8 @@ static void reg_extras() {
         if (!p) return json{{"ok", false}, {"error", "pty not found"}};
         std::thread([p]() {
             DWORD pid = p->pid.load();
-            if (pid) killTree(pid);
+            // Don't taskkill an already-exited process (handle closed, PID may be recycled).
+            if (pid && !p->exited.load()) killTree(pid);
             {
                 std::lock_guard<std::mutex> hl(p->hpcMutex);
                 if (p->hPC) {
