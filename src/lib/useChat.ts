@@ -957,13 +957,16 @@ export function useChat() {
     let n = 0;
     for (const s of cp.files.values()) {
       try {
-        if (!s.existed) {
-          // Only delete a newly-created FILE; if the path was since replaced by a directory,
-          // never recursively wipe it.
-          const st = await fs.stat(s.path).catch(() => null);
-          if (st && st.isFile) await fs.remove(s.path);
-        } else if (s.b64 != null) await writeBytesBase64(s.path, s.b64);
-        else await fs.writeTextFile(s.path, s.text ?? '');
+        // Restore under the global file lock so it can't interleave with a concurrent turn's edit.
+        await withFileLock(async () => {
+          if (!s.existed) {
+            // Only delete a newly-created FILE; if the path was since replaced by a directory,
+            // never recursively wipe it.
+            const st = await fs.stat(s.path).catch(() => null);
+            if (st && st.isFile) await fs.remove(s.path);
+          } else if (s.b64 != null) await writeBytesBase64(s.path, s.b64);
+          else await fs.writeTextFile(s.path, s.text ?? '');
+        });
         n++;
       } catch {
         /* ignore a single file that can't be restored */
@@ -1034,7 +1037,7 @@ export function useChat() {
             try {
               if (EDIT_FILE_TOOLS.has(sub.name)) {
                 out = await withFileLock(async () => {
-                  if (signal.aborted) return '(sub-agent cancelled)';
+                  if (signal.aborted) throw new Error('sub-agent cancelled');
                   await snapshotEdit(checkpoint, sub, effCwd);
                   return executeTool(sub, subCfg, { cancelId: cid, signal });
                 });
@@ -1511,7 +1514,9 @@ export function useChat() {
                   // Snapshot + write under the global file lock so concurrent turns don't clobber.
                   // Re-check abort AFTER acquiring the lock so a Stop pressed while queued skips the write.
                   out = await withFileLock(async () => {
-                    if (turn.stopped || ctrl.signal.aborted) return 'Stopped.';
+                    // Throw (not return) so a Stop-while-queued is recorded as an error, not a
+                    // successful edit (which would set producedEdits + open the changes panel).
+                    if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.');
                     await snapshotEdit(checkpoint, tc, effCwd);
                     return executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
                   });

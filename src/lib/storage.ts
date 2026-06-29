@@ -152,17 +152,22 @@ export function loadConversations(): Conversation[] {
       .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && c.id)
       .map((c) => {
         const rawMsgs = Array.isArray(c.messages) ? c.messages : [];
-        // If the app was closed mid-turn, an assistant message can have tool_calls with no matching
-        // tool result. Strip those dangling calls (and clear any stuck `pending`) — otherwise
-        // toApiMessages would send unmatched tool_calls and the next request 400s.
+        // If the app was closed mid-turn the history can be inconsistent: an assistant tool_call
+        // without its result, OR a tool result without its call. Either makes the next API request
+        // 400. Two passes: (1) keep only assistant tool_calls that HAVE a result + clear stuck
+        // `pending`; (2) drop tool-result messages no surviving call references (orphans).
         const haveResult = new Set(rawMsgs.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId));
-        const messages = rawMsgs.map((m) =>
-          m.role === 'assistant' && m.toolCalls && m.toolCalls.length && !m.toolCalls.every((t) => haveResult.has(t.id))
-            ? { ...m, toolCalls: undefined, pending: false }
-            : m.pending
-              ? { ...m, pending: false }
-              : m,
+        const pass1 = rawMsgs.map((m) => {
+          if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
+            const kept = m.toolCalls.filter((t) => haveResult.has(t.id));
+            if (kept.length !== m.toolCalls.length) return { ...m, toolCalls: kept.length ? kept : undefined, pending: false };
+          }
+          return m.pending ? { ...m, pending: false } : m;
+        });
+        const refIds = new Set(
+          pass1.flatMap((m) => (m.role === 'assistant' && m.toolCalls ? m.toolCalls.map((t) => t.id) : [])),
         );
+        const messages = pass1.filter((m) => !(m.role === 'tool' && m.toolCallId && !refIds.has(m.toolCallId)));
         return {
           ...c,
           title: typeof c.title === 'string' ? c.title : 'Chat',

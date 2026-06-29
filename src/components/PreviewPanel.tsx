@@ -131,10 +131,12 @@ function ChangesTab({ controller }: { controller: ChatController }) {
           <span className="diff-del">-{totD}</span>
         </div>
       )}
-      {changes.map((c) => (
-        <div className="change-file" key={c.path}>
+      {changes.map((c) => {
+        const k = c.id ?? c.path; // unique per change card (same file edited twice → distinct cards)
+        return (
+        <div className="change-file" key={k}>
           <div className="change-row">
-            <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [c.path]: !o[c.path] }))}>
+            <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [k]: !o[k] }))}>
               <span className="change-kind">
                 {c.kind === 'edit' ? (
                   <Pencil size={13} strokeWidth={1.9} />
@@ -156,11 +158,11 @@ function ChangesTab({ controller }: { controller: ChatController }) {
                 <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
               </span>
             </button>
-            <button className="change-open" title={t('ctxOpen')} onClick={() => shell.open(resolve(c.path)).catch(() => {})}>
+            <button className="change-open" title={t('ctxOpen')} onClick={() => shell.open(c.abs || resolve(c.path)).catch(() => {})}>
               <ExternalLink size={13} strokeWidth={1.9} />
             </button>
           </div>
-          {open[c.path] && c.diff.length > 0 && (
+          {open[k] && c.diff.length > 0 && (
             <div className="diff">
               {c.diff.map((r, j) => (
                 <div key={j} className={`diff-line ${r.t}`}>
@@ -171,7 +173,8 @@ function ChangesTab({ controller }: { controller: ChatController }) {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

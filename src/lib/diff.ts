@@ -28,6 +28,8 @@ export function lineDiff(oldStr: string, newStr: string): DiffRow[] {
 }
 
 export interface FileChange {
+  /** Originating tool-call id — unique per change card (a file edited twice yields two cards). */
+  id?: string;
   path: string;
   /** Absolute path parsed from the tool result (authoritative for opening the file). */
   abs?: string;
@@ -45,7 +47,7 @@ const EDIT_TOOLS = new Set(['edit_file', 'write_file', 'write_excel', 'write_wor
  *  what relative path the model passed. */
 function absFromResult(content: string): string | undefined {
   if (!content) return undefined;
-  const m = content.match(/ to (.+?)\s*$/) || content.match(/^Edited (.+?) \(/);
+  const m = content.match(/ to (.+?)\s*$/) || content.match(/^Edited (.+) \(\d+ replacement/);
   const p = m?.[1]?.trim();
   return p && (/^[A-Za-z]:[\\/]/.test(p) || p.startsWith('\\\\')) ? p : undefined;
 }
@@ -71,6 +73,7 @@ export function extractChanges(messages: Message[]): FileChange[] {
       if (tc.name === 'edit_file') diff = lineDiff(String(a.old_string ?? ''), String(a.new_string ?? ''));
       else if (tc.name === 'write_file') diff = lineDiff('', String(a.content ?? ''));
       out.push({
+        id: tc.id,
         path: a.path || '(unknown)',
         abs: ok && res ? absFromResult(res.content) : undefined,
         kind:

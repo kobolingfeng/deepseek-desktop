@@ -124,7 +124,7 @@ let buildCount = 0;
 async function buildFrontend() {
     mkdirSync(DIST, { recursive: true });
     const result = await Bun.build({
-        entrypoints: [join(SRC, 'main.ts')],
+        entrypoints: [join(SRC, 'main.tsx')],
         outdir: DIST,
         target: 'browser',
     });
@@ -133,8 +133,8 @@ async function buildFrontend() {
         return false;
     }
 
-    let html = await Bun.file(join(SRC, 'index.html')).text();
-    html = html.replace('./main.ts', './main.js');
+    let html = await Bun.file(join(ROOT, 'index.html')).text();
+    html = html.replace('/src/main.tsx', './main.js');
     html = html.replace('</body>', `<script>
 let _rc = "0";
 setInterval(async () => {
