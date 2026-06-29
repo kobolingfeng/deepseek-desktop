@@ -34,7 +34,7 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
   // Cap the panel so the chat pane always keeps at least MIN_CHAT px — never let it cover the
   // content. `panelW` is the effective width: it also clamps a persisted value that's now too
   // wide for the current window / sidebar width.
-  const MIN_PANEL = 320;
+  const MIN_PANEL = 240;
   const MIN_CHAT = 360;
   const maxPanel = Math.max(MIN_PANEL, window.innerWidth - controller.sidebarWidth - MIN_CHAT);
   const panelW = Math.min(controller.panelWidth, maxPanel);

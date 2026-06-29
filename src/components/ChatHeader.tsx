@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from 'react';
-import { MoreHorizontal, PanelLeft } from 'lucide-react';
+import { MoreHorizontal } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import { showContextMenu } from '../lib/contextMenu';
 import type { ChatController } from '../lib/useChat';
@@ -37,14 +37,6 @@ export function ChatHeader({ controller }: { controller: ChatController }) {
 
   return (
     <div className="chat-header">
-      <button
-        className="chat-hbtn"
-        onClick={controller.toggleSidebar}
-        title={t('toggleSidebar')}
-        aria-label={t('toggleSidebar')}
-      >
-        <PanelLeft size={16} strokeWidth={1.9} />
-      </button>
       {renaming ? (
         <input
           className="chat-htitle-input"

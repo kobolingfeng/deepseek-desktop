@@ -153,18 +153,27 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: var(--sidebar-w, 272px);
   flex-shrink: 0;
-  padding-left: var(--space-5);
+  padding-left: 8px;
 }
-.app-mark {
-  font-size: 18px;
-  line-height: 1;
+/* Sidebar toggle pinned to the window's top-left corner (replaces the brand mark). */
+.titlebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 7px;
+  cursor: pointer;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
-.app-name {
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.2px;
-  font-size: var(--text-md);
+.titlebar-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 .titlebar-center {
   flex: 1;

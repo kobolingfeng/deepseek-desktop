@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { PanelLeft } from 'lucide-react';
 import { win } from '../api';
+import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
 
-export function TitleBar(_props: { controller: ChatController }) {
+export function TitleBar({ controller }: { controller: ChatController }) {
+  const { t } = useI18n();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -18,8 +21,14 @@ export function TitleBar(_props: { controller: ChatController }) {
   return (
     <div className="titlebar">
       <div className="titlebar-left">
-        <span className="app-mark">🐋</span>
-        <span className="app-name">DeepSeek</span>
+        <button
+          className="titlebar-toggle"
+          onClick={controller.toggleSidebar}
+          title={t('toggleSidebar')}
+          aria-label={t('toggleSidebar')}
+        >
+          <PanelLeft size={17} strokeWidth={1.9} />
+        </button>
       </div>
 
       <div className="titlebar-center" />
