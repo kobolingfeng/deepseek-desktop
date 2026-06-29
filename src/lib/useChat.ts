@@ -99,6 +99,17 @@ const SUBAGENT_SYSTEM =
 const NO_PROGRESS_LIMIT = 6;
 let cancelSeq = 1;
 const nextCancelId = () => cancelSeq++;
+// Serialize file-mutating work (edit tools, project-memory writes) across ALL conversations so two
+// concurrently-running turns can't interleave a snapshot+write on the same file and lose an edit.
+let fileEditChain: Promise<unknown> = Promise.resolve();
+function withFileLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = fileEditChain.then(fn, fn); // wait for the previous edit to settle (ok or error)
+  fileEditChain = run.then(
+    () => undefined,
+    () => undefined,
+  ); // the chain itself never rejects
+  return run;
+}
 const PLAN_SYSTEM =
   'You are in PLAN MODE. Investigate with read-only tools if needed, then reply with a concise numbered plan of the steps you would take. Do NOT create or edit files or run commands — make no changes. Stop after presenting the plan.';
 // Goal mode steering, adapted from Codex's goal continuation prompt
@@ -632,6 +643,10 @@ export function useChat() {
       messages: conv.messages.map((m) => ({ ...m })),
       createdAt: now,
       updatedAt: now,
+      // Don't carry over a live turn's transient state into an idle copy.
+      queued: undefined,
+      activeTool: undefined,
+      turnStartedAt: undefined,
     };
     convsRef.current = [copy, ...convsRef.current];
     setActiveId(copy.id);
@@ -1011,8 +1026,23 @@ export function useChat() {
             out = 'User denied this action.';
             isErr = true;
           } else {
-            if (EDIT_FILE_TOOLS.has(sub.name)) await snapshotEdit(checkpoint, sub, effCwd);
-            out = await executeTool(sub, subCfg, { signal });
+            // Thread a cancelId so Stop/abort actually kills the sub-agent's in-flight shell work
+            // (run_command/process tools cancel by id, not just the AbortSignal).
+            const cid = nextCancelId();
+            const onCancel = () => shell.runCancel(cid).catch(() => {});
+            signal.addEventListener('abort', onCancel);
+            try {
+              if (EDIT_FILE_TOOLS.has(sub.name)) {
+                out = await withFileLock(async () => {
+                  await snapshotEdit(checkpoint, sub, effCwd);
+                  return executeTool(sub, subCfg, { cancelId: cid, signal });
+                });
+              } else {
+                out = await executeTool(sub, subCfg, { cancelId: cid, signal });
+              }
+            } finally {
+              signal.removeEventListener('abort', onCancel);
+            }
           }
         } catch (e: unknown) {
           out = 'Error: ' + (e instanceof Error ? e.message : String(e));
@@ -1218,17 +1248,14 @@ export function useChat() {
           // before the generic permission gate below). add_mcp_server self-approves in its branch.
           let gated = false;
           if (SELF_MGMT_TOOLS.includes(tc.name)) {
+            // Gate purely by the resolved permission (honors an explicit Ask even in Full mode).
+            // add_mcp_server resolves to 'ask' in Read/Auto via CONFIRM_IN_AUTO, 'allow' in Full.
             const perm = toolPerm(tc.name, settingsRef.current);
             if (perm === 'off') {
               out = `${tc.name} is disabled in settings.`;
               isErr = true;
               gated = true;
-            } else if (
-              perm === 'ask' &&
-              tc.name !== 'add_mcp_server' &&
-              settingsRef.current.approvalMode !== 'full' &&
-              !(await requestApproval(conv.id, tc))
-            ) {
+            } else if (perm === 'ask' && !(await requestApproval(conv.id, tc))) {
               out = turn.stopped ? 'Stopped.' : 'User declined this action.';
               isErr = true;
               gated = true;
@@ -1266,19 +1293,18 @@ export function useChat() {
                   isErr = true;
                 } else {
                   const file = effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md';
-                  let prev = '';
-                  try {
-                    if (await fs.exists(file)) prev = await fs.readTextFile(file);
-                  } catch {
-                    /* new file */
-                  }
-                  if (prev.split('\n').some((l) => l.trim() === line)) {
-                    out = 'Already in project memory: ' + content;
-                  } else {
+                  out = await withFileLock(async () => {
+                    let prev = '';
+                    try {
+                      if (await fs.exists(file)) prev = await fs.readTextFile(file);
+                    } catch {
+                      /* new file */
+                    }
+                    if (prev.split('\n').some((l) => l.trim() === line)) return 'Already in project memory: ' + content;
                     const next = prev.trim() ? prev.replace(/\s*$/, '') + '\n' + line + '\n' : '# Project memory\n\n' + line + '\n';
                     await fs.writeTextFile(file, next);
-                    out = 'Remembered (project): ' + content;
-                  }
+                    return 'Remembered (project): ' + content;
+                  });
                 }
               } else {
                 const prev = settingsRef.current.globalMemory || '';
@@ -1299,22 +1325,30 @@ export function useChat() {
               const a = JSON.parse(tc.arguments || '{}');
               const query = String(a.query ?? a.content ?? '').trim().toLowerCase();
               const scope = a.scope === 'project' ? 'project' : 'global';
-              if (!query) {
+              if (query.length < 4) {
+                // Substring match — too short a query would wipe many unrelated entries.
+                out = 'Error: forget needs a specific query (at least 4 characters) so it removes only the intended memory.';
+                isErr = true;
+              } else if (!query) {
                 out = 'Error: forget requires a query of what to remove.';
                 isErr = true;
               } else if (scope === 'project') {
                 const file = effCwd ? effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md' : '';
-                let prev = '';
-                try {
-                  if (file && (await fs.exists(file))) prev = await fs.readTextFile(file);
-                } catch {
-                  /* none */
-                }
-                const lines = prev.split('\n');
-                const kept = lines.filter((l) => !(l.trim().startsWith('-') && l.toLowerCase().includes(query)));
-                const removed = lines.length - kept.length;
-                if (removed && file) await fs.writeTextFile(file, kept.join('\n'));
-                out = removed ? `Forgot ${removed} project memory entr${removed === 1 ? 'y' : 'ies'}.` : 'No matching project memory found.';
+                out = await withFileLock(async () => {
+                  let prev = '';
+                  try {
+                    if (file && (await fs.exists(file))) prev = await fs.readTextFile(file);
+                  } catch {
+                    /* none */
+                  }
+                  const lines = prev.split('\n');
+                  const kept = lines.filter((l) => !(l.trim().startsWith('-') && l.toLowerCase().includes(query)));
+                  const removed = lines.length - kept.length;
+                  if (removed && file) await fs.writeTextFile(file, kept.join('\n'));
+                  return removed
+                    ? `Forgot ${removed} project memory entr${removed === 1 ? 'y' : 'ies'}.`
+                    : 'No matching project memory found.';
+                });
               } else {
                 const prev = settingsRef.current.globalMemory || '';
                 const lines = prev.split('\n');
@@ -1386,15 +1420,10 @@ export function useChat() {
                 out = 'Error: the MCP url must be a valid http(s) URL.';
                 isErr = true;
               } else {
-                const approved = settingsRef.current.approvalMode === 'full' ? true : await requestApproval(conv.id, tc);
-                if (!approved || turn.stopped) {
-                  out = turn.stopped ? 'Stopped.' : 'User declined to add this MCP server.';
-                  isErr = true;
-                } else {
-                  const cur = settingsRef.current.mcpServers || [];
-                  updateSettings({ mcpServers: [...cur.filter((s) => s.name !== name), { name, url }] });
-                  out = `Added MCP server "${name}" (${url}) — connecting…`;
-                }
+                // Approval already handled by the shared permission gate above.
+                const cur = settingsRef.current.mcpServers || [];
+                updateSettings({ mcpServers: [...cur.filter((s) => s.name !== name), { name, url }] });
+                out = `Added MCP server "${name}" (${url}) — connecting…`;
               }
             } catch (e: any) {
               out = 'Error adding MCP server: ' + (e?.message || String(e));
@@ -1417,7 +1446,9 @@ export function useChat() {
               isErr = true;
             }
           } else if (tc.name.startsWith('mcp__')) {
-            const { server, tool } = findMcpServer(turnMcp, tc.name);
+            // Look up against the LIVE server list (not the turn snapshot) so a server
+            // removed/disconnected mid-turn fails fast instead of being called as if present.
+            const { server, tool } = findMcpServer(mcpRef.current, tc.name);
             if (!server || !server.ok) {
               out = `MCP server not connected for ${tc.name}.`;
               isErr = true;
@@ -1476,13 +1507,18 @@ export function useChat() {
               };
               conv.activeTool = tc.name; // drives the continuous "Searching the web…" indicator
               bumpNow();
-              // Snapshot the target file before an edit tool first changes it this turn.
-              if (EDIT_FILE_TOOLS.has(tc.name)) await snapshotEdit(checkpoint, tc, effCwd);
               try {
-                out =
-                  tc.name === 'run_subagent'
-                    ? await runSubAgent(tc, toolCfg, effCwd, turnModel, conv.id, checkpoint, ctrl.signal)
-                    : await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                if (EDIT_FILE_TOOLS.has(tc.name)) {
+                  // Snapshot + write under the global file lock so concurrent turns don't clobber.
+                  out = await withFileLock(async () => {
+                    await snapshotEdit(checkpoint, tc, effCwd);
+                    return executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                  });
+                } else if (tc.name === 'run_subagent') {
+                  out = await runSubAgent(tc, toolCfg, effCwd, turnModel, conv.id, checkpoint, ctrl.signal);
+                } else {
+                  out = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                }
               } catch (e: any) {
                 out = 'Error: ' + (e?.message || String(e));
                 isErr = true;

@@ -329,6 +329,12 @@ function escHtml(s: string): string {
  *  (per slide for .pptx) for documents/decks. */
 export async function officePreviewHtml(p: string): Promise<string> {
   const ext = (p.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  // Cap up front so a huge (possibly untrusted) workbook/doc/image can't freeze the WebView in
+  // SheetJS/mammoth or a giant base64 data-URL. (Text gets a tighter cap in its own branch.)
+  {
+    const st = await fs.stat(p).catch(() => null);
+    if (st && st.size > 25e6) return `<div class="o-empty">(file too large to preview — ${(st.size / 1e6).toFixed(1)} MB)</div>`;
+  }
   if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
     const b64 = await readBytesBase64(p);
     const wb = XLSX.read(b64, { type: 'base64' });

@@ -99,6 +99,7 @@ function ChangesTab({ controller }: { controller: ChatController }) {
   const [open, setOpen] = useState<Record<number, boolean>>({});
   const [undid, setUndid] = useState<number | null>(null);
   const doUndo = async () => {
+    if (controller.generating) return; // don't restore a checkpoint mid-turn (would race snapshotEdit)
     const n = await controller.undoLast();
     setUndid(n);
     window.setTimeout(() => setUndid(null), 2500);
@@ -117,7 +118,7 @@ function ChangesTab({ controller }: { controller: ChatController }) {
     <div className="changes">
       {controller.undoCount > 0 && (
         <div className="undo-bar">
-          <button className="undo-btn" onClick={doUndo} title={controller.undoLabel || undefined}>
+          <button className="undo-btn" onClick={doUndo} disabled={controller.generating} title={controller.undoLabel || undefined}>
             <Undo2 size={13} strokeWidth={1.9} />
             <span>{t('panelUndo')}</span>
           </button>

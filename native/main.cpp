@@ -2363,9 +2363,26 @@ static void reg_extras() {
     });
 
     // ---- cancellable shell.run process registry ----
-    struct ProcEntry { std::atomic<DWORD> pid{0}; std::atomic<bool> cancel{false}; };
+    struct ProcEntry {
+        std::atomic<DWORD> pid{0};
+        std::atomic<bool> cancel{false};
+        HANDLE hProcPin{nullptr}; // pins the PID so runCancel's killTree can't hit a recycled PID
+        ~ProcEntry() { if (hProcPin) CloseHandle(hProcPin); }
+    };
     static std::mutex g_procMutex;
     static std::unordered_map<int, std::shared_ptr<ProcEntry>> g_procs; // cancelId -> entry
+
+    // Child processes (one-shot shell.run, sessions, ptys) join this Job so the OS kills them when
+    // the app exits (Windows doesn't kill children on parent exit). Declared before any spawn site.
+    static HANDLE g_childJob = []() -> HANDLE {
+        HANDLE j = CreateJobObjectW(nullptr, nullptr);
+        if (j) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(j, JobObjectExtendedLimitInformation, &info, sizeof(info));
+        }
+        return j;
+    }();
 
     static auto killTree = [](DWORD pid) {
         std::wstring kill = L"taskkill /T /F /PID " + std::to_wstring(pid);
@@ -2477,8 +2494,12 @@ static void reg_extras() {
             }
             CloseHandle(hOutW);
             CloseHandle(hErrW);
+            if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess); // best-effort: die with the app
 
             if (entry) {
+                // Pin the PID for the entry's lifetime so a concurrent runCancel can't taskkill a
+                // recycled PID after this worker closes pi.hProcess (closed in ~ProcEntry).
+                DuplicateHandle(GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &entry->hProcPin, 0, FALSE, DUPLICATE_SAME_ACCESS);
                 entry->pid = pi.dwProcessId;
                 if (entry->cancel.load()) killTree(pi.dwProcessId); // cancel arrived during the spawn race
             }
@@ -2572,16 +2593,6 @@ static void reg_extras() {
     // Windows does NOT kill children on parent exit, so without this a closed app leaves orphan
     // powershell/shells running. KILL_ON_JOB_CLOSE: when our last handle to the job goes away
     // (process teardown, even on crash), the whole job is terminated.
-    static HANDLE g_childJob = []() -> HANDLE {
-        HANDLE j = CreateJobObjectW(nullptr, nullptr);
-        if (j) {
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info{};
-            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-            SetInformationJobObject(j, JobObjectExtendedLimitInformation, &info, sizeof(info));
-        }
-        return j;
-    }();
-
     ipc_on("shell.session.start", [](const json& a) -> json {
         auto program = a.value("program", std::string{});
         if (program.empty()) throw std::runtime_error("program is required");
@@ -2630,7 +2641,15 @@ static void reg_extras() {
         }
         // Started suspended: join the kill-on-exit Job BEFORE the child runs, then resume.
         if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess);
-        ResumeThread(pi.hThread);
+        if (ResumeThread(pi.hThread) == (DWORD)-1) {
+            // Can't resume → the child would hang suspended and the reader would block forever.
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("failed to resume process");
+        }
         CloseHandle(pi.hThread); // never used
 
         auto s = std::make_shared<Session>();
@@ -2859,7 +2878,16 @@ static void reg_extras() {
         }
         // Started suspended: join the kill-on-exit Job BEFORE the child runs, then resume.
         if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess);
-        ResumeThread(pi.hThread);
+        if (ResumeThread(pi.hThread) == (DWORD)-1) {
+            // Can't resume → the child would hang suspended and the reader would block forever.
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            ClosePseudoConsole(hPC);
+            CloseHandle(inW);
+            CloseHandle(outR);
+            throw std::runtime_error("failed to resume pty process");
+        }
         CloseHandle(pi.hThread);
 
         auto p = std::make_shared<Pty>();

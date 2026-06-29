@@ -70,7 +70,7 @@ export type ApprovalMode = 'read' | 'auto' | 'full';
 export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'write_word', 'write_pptx', 'write_morph_pptx', 'run_command', 'start_process', 'write_process'];
 const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
 // Commands that execute/inject shell work — confirmed even in Auto (we have no sandbox).
-const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process'];
+const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process', 'add_mcp_server'];
 
 export function approvalModePerms(mode: ApprovalMode): Record<string, ToolPerm> {
   const out: Record<string, ToolPerm> = {};

@@ -107,7 +107,12 @@ export function loadSettings(): Settings {
     if (s.approvalMode !== 'read' && s.approvalMode !== 'auto' && s.approvalMode !== 'full') s.approvalMode = 'read';
     // Coerce critical fields so malformed/old storage can't crash render paths.
     if (typeof s.temperature !== 'number' || Number.isNaN(s.temperature)) s.temperature = DEFAULT_SETTINGS.temperature;
-    if (!Array.isArray(s.mcpServers)) s.mcpServers = [];
+    s.mcpServers = Array.isArray(s.mcpServers)
+      ? s.mcpServers
+          .filter((m: unknown): m is { name: unknown; url: unknown } => !!m && typeof m === 'object')
+          .map((m: { name: unknown; url: unknown }) => ({ name: String(m.name ?? ''), url: String(m.url ?? '') }))
+          .filter((m: { name: string; url: string }) => m.name && m.url)
+      : [];
     if (!Array.isArray(s.customCommands)) s.customCommands = [];
     if (!s.toolPermissions || typeof s.toolPermissions !== 'object') s.toolPermissions = { ...DEFAULT_SETTINGS.toolPermissions };
     if (typeof s.model !== 'string' || !s.model) s.model = DEFAULT_SETTINGS.model;
