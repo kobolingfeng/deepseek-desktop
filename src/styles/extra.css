@@ -210,6 +210,34 @@
   text-decoration: underline;
 }
 
+/* Content column = the header bar + the panes (chat + right panel) below it. The header spans
+   the full content width so the panel toggle / ⋯ don't drift when the right panel opens. */
+.maincol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+/* Left sidebar slides open/closed by animating the wrapper width (mirrors the right panel); the
+   inner .sidebar keeps its fixed width so its content doesn't reflow during the slide. */
+.sidebar-wrap {
+  flex-shrink: 0;
+  overflow: hidden;
+  width: 0;
+  transition: width var(--dur-2) var(--ease-out);
+}
+.sidebar-wrap.open {
+  width: var(--sidebar-w, 272px);
+}
+body.sb-resizing .sidebar-wrap {
+  transition: none;
+}
+
 /* Content-area top bar: sidebar toggle + conversation title + ⋯ menu + panel toggle. */
 .chat-header {
   display: flex;

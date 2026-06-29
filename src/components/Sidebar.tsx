@@ -473,8 +473,10 @@ export function Sidebar({
     e.preventDefault();
     const startX = e.clientX;
     const startW = controller.sidebarWidth;
+    document.body.classList.add('sb-resizing'); // disable the wrap's width transition while dragging
     const onMove = (ev: MouseEvent) => controller.setSidebarWidth(startW + (ev.clientX - startX));
     const onUp = () => {
+      document.body.classList.remove('sb-resizing');
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };

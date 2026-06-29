@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChatView } from './components/ChatView';
+import { ChatHeader } from './components/ChatHeader';
 import { CommandPalette } from './components/CommandPalette';
 import { ContextMenu } from './components/ContextMenu';
 import { PreviewPanel } from './components/PreviewPanel';
@@ -149,7 +150,7 @@ export function App() {
             <Settings controller={controller} onClose={() => setSettingsOpen(false)} />
           ) : (
             <>
-              {controller.sidebarOpen && (
+              <div className={`sidebar-wrap ${controller.sidebarOpen ? 'open' : ''}`}>
                 <Sidebar
                   controller={controller}
                   onOpenSettings={() => setSettingsOpen(true)}
@@ -157,11 +158,16 @@ export function App() {
                   onOpenSearch={() => setPaletteOpen(true)}
                   settingsOpen={settingsOpen}
                 />
-              )}
-              <main className="main">
-                <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
-              </main>
-              <PreviewPanel controller={controller} />
+              </div>
+              <div className="maincol">
+                <ChatHeader controller={controller} />
+                <div className="panes">
+                  <main className="main">
+                    <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
+                  </main>
+                  <PreviewPanel controller={controller} />
+                </div>
+              </div>
             </>
           )}
         </div>
