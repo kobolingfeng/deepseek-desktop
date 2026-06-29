@@ -269,7 +269,7 @@ export function ChatView({
       )}
 
       {activeConversation?.todos && activeConversation.todos.length > 0 && (
-        <TodoPanel todos={activeConversation.todos} panelRef={setTodoRef} />
+        <TodoPanel key={activeConversation.id} todos={activeConversation.todos} panelRef={setTodoRef} />
       )}
 
       <Composer

@@ -7,7 +7,7 @@ const MARK: Record<string, string> = { done: '✓', doing: '◐', pending: '○'
 
 export function TodoPanel({ todos, panelRef }: { todos: TodoItem[]; panelRef?: Ref<HTMLDivElement> }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false); // collapsed by default; expand on click
   const done = todos.filter((x) => x.status === 'done').length;
   // Sits just above the composer; the list renders ABOVE the header so toggling expands
   // upward (the header stays put, pinned to the input box).
