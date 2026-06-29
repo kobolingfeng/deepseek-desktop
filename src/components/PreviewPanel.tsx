@@ -36,8 +36,10 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
   // wide for the current window / sidebar width.
   const MIN_PANEL = 240;
   const MIN_CHAT = 360;
-  const maxPanel = Math.max(MIN_PANEL, window.innerWidth - controller.sidebarWidth - MIN_CHAT);
-  const panelW = Math.min(controller.panelWidth, maxPanel);
+  // Only subtract the sidebar's width when it's actually shown (collapsed wrapper is width 0).
+  const sidebarW = controller.sidebarOpen ? controller.sidebarWidth : 0;
+  const maxPanel = Math.max(MIN_PANEL, window.innerWidth - sidebarW - MIN_CHAT);
+  const panelW = Math.min(Math.max(controller.panelWidth, MIN_PANEL), maxPanel);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();

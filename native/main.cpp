@@ -2559,6 +2559,10 @@ static void reg_extras() {
         std::atomic<bool> exited{false};
         std::atomic<DWORD> exitCode{0};
         std::atomic<int> pendingWrites{0}; // bound concurrent write workers
+        // Held open for the whole lifetime so the OS can't recycle the child's PID while a
+        // detached kill is still resolving it (the reader owns + closes the *other* handle).
+        HANDLE hProcPin{nullptr};
+        ~Session() { if (hProcPin) CloseHandle(hProcPin); }
     };
     static std::mutex g_sessMutex;
     static std::unordered_map<int, std::shared_ptr<Session>> g_sessions;
@@ -2616,7 +2620,7 @@ static void reg_extras() {
         std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
         cmd.push_back(0);
         BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
-            CREATE_NO_WINDOW, nullptr, (cwdW.empty() ? nullptr : cwdW.c_str()), &si, &pi);
+            CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, (cwdW.empty() ? nullptr : cwdW.c_str()), &si, &pi);
         CloseHandle(inR);  // child's stdin-read end
         CloseHandle(outW); // child's stdout-write end
         if (!ok) {
@@ -2624,12 +2628,17 @@ static void reg_extras() {
             CloseHandle(outR);
             throw std::runtime_error("failed to start process");
         }
+        // Started suspended: join the kill-on-exit Job BEFORE the child runs, then resume.
+        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess);
+        ResumeThread(pi.hThread);
         CloseHandle(pi.hThread); // never used
-        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess); // killed on app exit
 
         auto s = std::make_shared<Session>();
         s->pid = pi.dwProcessId;
         s->hStdinW = inW;
+        // Pin the PID for the session's lifetime (see Session::hProcPin) so a concurrent kill
+        // can never taskkill a recycled PID.
+        DuplicateHandle(GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &s->hProcPin, 0, FALSE, DUPLICATE_SAME_ACCESS);
         int id = g_nextSessionId.fetch_add(1);
         {
             std::lock_guard<std::mutex> lk(g_sessMutex);
@@ -2774,6 +2783,9 @@ static void reg_extras() {
         std::mutex inMutex;
         bool inOpen{true};
         std::atomic<int> pendingWrites{0}; // bound concurrent write workers
+        // Held open for the whole lifetime so the OS can't recycle the child's PID mid-kill.
+        HANDLE hProcPin{nullptr};
+        ~Pty() { if (hProcPin) CloseHandle(hProcPin); }
     };
     static std::mutex g_ptyMutex;
     static std::unordered_map<int, std::shared_ptr<Pty>> g_ptys;
@@ -2835,7 +2847,7 @@ static void reg_extras() {
         std::vector<wchar_t> cmd(cmdLine.begin(), cmdLine.end());
         cmd.push_back(0);
         BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, nullptr,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, nullptr,
             (cwdW.empty() ? nullptr : cwdW.c_str()), &si.StartupInfo, &pi);
         DeleteProcThreadAttributeList(si.lpAttributeList);
         HeapFree(GetProcessHeap(), 0, si.lpAttributeList);
@@ -2845,13 +2857,17 @@ static void reg_extras() {
             CloseHandle(outR);
             throw std::runtime_error("failed to start pty process");
         }
+        // Started suspended: join the kill-on-exit Job BEFORE the child runs, then resume.
+        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess);
+        ResumeThread(pi.hThread);
         CloseHandle(pi.hThread);
-        if (g_childJob) AssignProcessToJobObject(g_childJob, pi.hProcess); // killed on app exit
 
         auto p = std::make_shared<Pty>();
         p->pid = pi.dwProcessId;
         p->hInW = inW;
         p->hPC = hPC;
+        // Pin the PID for the pty's lifetime (see Pty::hProcPin).
+        DuplicateHandle(GetCurrentProcess(), pi.hProcess, GetCurrentProcess(), &p->hProcPin, 0, FALSE, DUPLICATE_SAME_ACCESS);
         int id = g_nextPtyId.fetch_add(1);
         {
             std::lock_guard<std::mutex> lk(g_ptyMutex);

@@ -108,6 +108,12 @@ function ExternalLink({ href, children, cwd }: { href?: string; children?: React
   const parent = file ? abs.replace(/[\\/][^\\/]*$/, '') || abs : '';
 
   const openFile = async () => {
+    // Never auto-run an executable from a link (the model could mislabel it) — reveal it instead.
+    if (/\.(exe|bat|cmd|com|scr|msi|ps1|psm1|vbs|vbe|wsf|jar|reg|hta|cpl|lnk|msc|pif)$/i.test(abs)) {
+      shell.execute('explorer.exe', ['/select,', abs]).catch(() => {});
+      notification.show(t('linkExecReveal'), abs).catch(() => {});
+      return;
+    }
     try {
       await shell.open(abs); // default double-click behaviour (open with the registered app)
     } catch {

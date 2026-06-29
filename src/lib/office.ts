@@ -369,6 +369,9 @@ export async function officePreviewHtml(p: string): Promise<string> {
   }
 
   if (IMG_EXT.includes(ext)) {
+    const st = await fs.stat(p).catch(() => null);
+    if (st && st.size > 25e6)
+      return `<div class="o-empty">(image too large to preview — ${(st.size / 1e6).toFixed(1)} MB)</div>`;
     const b64 = await readBytesBase64(p);
     const mime =
       ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : ext === 'ico' ? 'image/x-icon' : `image/${ext}`;
@@ -376,6 +379,9 @@ export async function officePreviewHtml(p: string): Promise<string> {
   }
 
   if (TEXT_EXT.includes(ext)) {
+    const st = await fs.stat(p).catch(() => null);
+    if (st && st.size > 5e6)
+      return `<div class="o-empty">(file too large to preview — ${(st.size / 1e6).toFixed(1)} MB)</div>`;
     const t = await fs.readTextFile(p);
     return `<pre class="o-text">${escHtml(t)}</pre>`;
   }
