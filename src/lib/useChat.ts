@@ -361,6 +361,18 @@ export function useChat() {
     setActiveId(navStackRef.current[navIdxRef.current]);
   };
 
+  // Switching to a different conversation (select / new chat / back-forward / delete) collapses the
+  // right panel — its changes/preview belong to the conversation you just left. (The agent's
+  // auto-open happens within the SAME conversation, so it doesn't trip this.)
+  const firstActiveRef = useRef(true);
+  useEffect(() => {
+    if (firstActiveRef.current) {
+      firstActiveRef.current = false;
+      return; // don't fight the initial panel state on mount
+    }
+    setPanelOpen(false);
+  }, [activeId]);
+
   const runningIdsRef = useRef<Set<string>>(new Set()); // conversations currently generating
   const unreadIdsRef = useRef<Set<string>>(new Set()); // finished while not active → unread
   const settingsRef = useRef(settings);
