@@ -1406,8 +1406,12 @@ static void reg_http() {
         // Add custom headers
         std::wstring allHeaders;
         for (auto& [k, v] : hdrs.items()) {
-            if (!v.is_string() || !is_http_token(k) || has_header_injection_chars(v.get<std::string>()))
+            if (!v.is_string() || !is_http_token(k) || has_header_injection_chars(v.get<std::string>())) {
+                WinHttpCloseHandle(hRequest); // close the open handles before bailing (no leak)
+                WinHttpCloseHandle(hConnect);
+                WinHttpCloseHandle(hSession);
                 throw std::runtime_error("Invalid HTTP header");
+            }
             allHeaders += U2W(k) + L": " + U2W(v.get<std::string>()) + L"\r\n";
         }
         if (!allHeaders.empty())
@@ -1911,8 +1915,13 @@ static void reg_registry() {
         RegCloseKey(hKey);
         switch (type) {
             case REG_SZ:
-            case REG_EXPAND_SZ:
-                return W2U(reinterpret_cast<wchar_t*>(buf.data()));
+            case REG_EXPAND_SZ: {
+                // REG_SZ isn't guaranteed NUL-terminated — build from the returned byte length
+                // and trim one optional trailing NUL instead of assuming termination (OOB read).
+                std::wstring ws(reinterpret_cast<wchar_t*>(buf.data()), size / sizeof(wchar_t));
+                if (!ws.empty() && ws.back() == L'\0') ws.pop_back();
+                return W2U(ws);
+            }
             case REG_DWORD:
                 return (int)*reinterpret_cast<DWORD*>(buf.data());
             case REG_QWORD:

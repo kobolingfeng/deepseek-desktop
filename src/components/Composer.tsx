@@ -129,19 +129,24 @@ export function Composer({
     setFiles([]);
   }, [effectiveCwd]);
 
+  // Depend on a STABLE boolean, not the per-keystroke `atMatch` object (which would cancel the
+  // in-flight fetch on every keystroke and, since filesLoaded was set eagerly, never retry).
+  const inAtMention = !!atMatch;
   useEffect(() => {
-    if (!(atMatch && !filesLoaded.current && effectiveCwd)) return;
-    filesLoaded.current = true;
+    if (!inAtMention || filesLoaded.current || !effectiveCwd) return;
     let cancelled = false;
     listWorkspaceFiles(effectiveCwd)
       .then((f) => {
-        if (!cancelled) setFiles(f);
+        if (!cancelled) {
+          setFiles(f);
+          filesLoaded.current = true; // only mark loaded on success → a discarded fetch retries
+        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [atMatch, effectiveCwd]);
+  }, [inAtMention, effectiveCwd]);
 
   const curMode = controller.settings.agentMode || 'chat';
   // `run` = execute immediately (and clear the box); `insert` = drop text into the box

@@ -96,7 +96,7 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
 function ChangesTab({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const changes = extractChanges(controller.activeConversation?.messages ?? []);
-  const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [undid, setUndid] = useState<number | null>(null);
   const doUndo = async () => {
     if (controller.generating) return; // don't restore a checkpoint mid-turn (would race snapshotEdit)
@@ -131,10 +131,10 @@ function ChangesTab({ controller }: { controller: ChatController }) {
           <span className="diff-del">-{totD}</span>
         </div>
       )}
-      {changes.map((c, i) => (
-        <div className="change-file" key={i}>
+      {changes.map((c) => (
+        <div className="change-file" key={c.path}>
           <div className="change-row">
-            <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [i]: !o[i] }))}>
+            <button className="change-head" onClick={() => setOpen((o) => ({ ...o, [c.path]: !o[c.path] }))}>
               <span className="change-kind">
                 {c.kind === 'edit' ? (
                   <Pencil size={13} strokeWidth={1.9} />
@@ -160,7 +160,7 @@ function ChangesTab({ controller }: { controller: ChatController }) {
               <ExternalLink size={13} strokeWidth={1.9} />
             </button>
           </div>
-          {open[i] && c.diff.length > 0 && (
+          {open[c.path] && c.diff.length > 0 && (
             <div className="diff">
               {c.diff.map((r, j) => (
                 <div key={j} className={`diff-line ${r.t}`}>

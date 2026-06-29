@@ -150,18 +150,32 @@ export function loadConversations(): Conversation[] {
     // Normalize/drop malformed entries so the sidebar can't white-screen.
     return list
       .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && c.id)
-      .map((c) => ({
-        ...c,
-        title: typeof c.title === 'string' ? c.title : 'Chat',
-        model: typeof c.model === 'string' && c.model ? c.model : DEFAULT_SETTINGS.model,
-        messages: Array.isArray(c.messages) ? c.messages : [],
-        createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now(),
-        updatedAt: typeof c.updatedAt === 'number' ? c.updatedAt : c.createdAt || Date.now(),
-        // Transient per-turn state must not survive a reload (no turn is running on load).
-        queued: undefined,
-        activeTool: undefined,
-        turnStartedAt: undefined,
-      }));
+      .map((c) => {
+        const rawMsgs = Array.isArray(c.messages) ? c.messages : [];
+        // If the app was closed mid-turn, an assistant message can have tool_calls with no matching
+        // tool result. Strip those dangling calls (and clear any stuck `pending`) — otherwise
+        // toApiMessages would send unmatched tool_calls and the next request 400s.
+        const haveResult = new Set(rawMsgs.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId));
+        const messages = rawMsgs.map((m) =>
+          m.role === 'assistant' && m.toolCalls && m.toolCalls.length && !m.toolCalls.every((t) => haveResult.has(t.id))
+            ? { ...m, toolCalls: undefined, pending: false }
+            : m.pending
+              ? { ...m, pending: false }
+              : m,
+        );
+        return {
+          ...c,
+          title: typeof c.title === 'string' ? c.title : 'Chat',
+          model: typeof c.model === 'string' && c.model ? c.model : DEFAULT_SETTINGS.model,
+          messages,
+          createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now(),
+          updatedAt: typeof c.updatedAt === 'number' ? c.updatedAt : c.createdAt || Date.now(),
+          // Transient per-turn state must not survive a reload (no turn is running on load).
+          queued: undefined,
+          activeTool: undefined,
+          turnStartedAt: undefined,
+        };
+      });
   } catch {
     return [];
   }
