@@ -101,7 +101,23 @@ export function Settings({ controller, onClose }: { controller: ChatController; 
                   {showKey ? t('hide') : t('show')}
                 </button>
               </div>
-              <p className="hint">{t('apiKeyHint')}</p>
+              <p className="hint">
+                {(() => {
+                  const h = t('apiKeyHint');
+                  const tok = 'platform.deepseek.com';
+                  const i = h.indexOf(tok);
+                  if (i < 0) return h;
+                  return (
+                    <>
+                      {h.slice(0, i)}
+                      <a className="ext-link" onClick={() => shell.open('https://platform.deepseek.com').catch(() => {})}>
+                        {tok}
+                      </a>
+                      {h.slice(i + tok.length)}
+                    </>
+                  );
+                })()}
+              </p>
             </div>
 
             <div className="field">

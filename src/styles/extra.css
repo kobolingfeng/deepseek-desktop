@@ -202,6 +202,13 @@
   font-size: var(--text-xs, 12px);
   color: var(--text-tertiary);
 }
+.ext-link {
+  color: var(--accent);
+  cursor: pointer;
+}
+.ext-link:hover {
+  text-decoration: underline;
+}
 .side-empty {
   margin: auto;
   padding: var(--space-6);

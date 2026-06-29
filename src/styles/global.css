@@ -656,7 +656,11 @@ textarea {
 
 /* Plan / TODO panel */
 .todo-panel {
-  margin: 0 var(--space-4) var(--space-2);
+  /* Match the composer's effective width (max-width 768, centered, space-4 gutters) so the
+     plan lines up with the input box instead of spanning wider. */
+  max-width: 768px;
+  width: calc(100% - 2 * var(--space-4));
+  margin: 0 auto var(--space-2);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
