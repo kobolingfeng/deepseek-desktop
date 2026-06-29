@@ -209,6 +209,70 @@
 .ext-link:hover {
   text-decoration: underline;
 }
+
+/* Content-area top bar: sidebar toggle + conversation title + ⋯ menu + panel toggle. */
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-default);
+  flex: none;
+}
+.chat-hbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 7px;
+  cursor: pointer;
+  flex: none;
+}
+.chat-hbtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.chat-hbtn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.chat-htitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+  cursor: default;
+}
+.chat-htitle-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 3px 8px;
+  outline: none;
+}
+/* Markdown / text file preview (React renderer, not the iframe). */
+.preview-md {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px;
+}
 .side-empty {
   margin: auto;
   padding: var(--space-6);

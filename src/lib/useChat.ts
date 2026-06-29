@@ -278,6 +278,18 @@ export function useChat() {
     setSidebarWidthState(c);
     savePanelPrefs({ ...loadPanelPrefs(), sidebarWidth: c });
   };
+  // Sidebar visibility (toggled from the content header). Persisted; default shown.
+  const [sidebarOpen, setSidebarOpenState] = useState(() => loadPanelPrefs().sidebarOpen !== false);
+  const setSidebarOpen = (v: boolean) => {
+    setSidebarOpenState(v);
+    savePanelPrefs({ ...loadPanelPrefs(), sidebarOpen: v });
+  };
+  const toggleSidebar = () =>
+    setSidebarOpenState((o) => {
+      const v = !o;
+      savePanelPrefs({ ...loadPanelPrefs(), sidebarOpen: v });
+      return v;
+    });
   const [zoom, setZoomState] = useState(() => loadPanelPrefs().zoom || 1);
   const clampZoom = (z: number) => Math.min(2, Math.max(0.6, Math.round(z * 100) / 100));
   const setZoom = (z: number) => setZoomState(clampZoom(z));
@@ -1332,7 +1344,10 @@ export function useChat() {
           const msg = conv.messages[i];
           if ((msg.createdAt || 0) < startedAt) break;
           if (!officePath && msg.role === 'tool') {
-            const om = (msg.content || '').match(/ to (.+\.(?:xlsx|xlsm|docx|pptx))\s*$/i);
+            // Auto-open created documents/visuals (office decks/sheets, images, md, html).
+            const om = (msg.content || '').match(
+              / to (.+\.(?:xlsx|xlsm|docx|pptx|png|jpe?g|gif|webp|svg|bmp|md|markdown|html?))\s*$/i,
+            );
             if (om && !msg.isError) officePath = om[1];
           }
           if (!url) {
@@ -1457,6 +1472,9 @@ export function useChat() {
     setPanelTab,
     setPanelWidth,
     setSidebarWidth,
+    sidebarOpen,
+    setSidebarOpen,
+    toggleSidebar,
     setZoom,
     zoomBy,
     setPreviewUrl,

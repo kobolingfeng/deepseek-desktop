@@ -149,13 +149,15 @@ export function App() {
             <Settings controller={controller} onClose={() => setSettingsOpen(false)} />
           ) : (
             <>
-              <Sidebar
-                controller={controller}
-                onOpenSettings={() => setSettingsOpen(true)}
-                onCloseSettings={() => setSettingsOpen(false)}
-                onOpenSearch={() => setPaletteOpen(true)}
-                settingsOpen={settingsOpen}
-              />
+              {controller.sidebarOpen && (
+                <Sidebar
+                  controller={controller}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                  onCloseSettings={() => setSettingsOpen(false)}
+                  onOpenSearch={() => setPaletteOpen(true)}
+                  settingsOpen={settingsOpen}
+                />
+              )}
               <main className="main">
                 <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
               </main>

@@ -300,6 +300,27 @@ export function isOfficeFile(p: string): boolean {
   return /\.(xlsx|xlsm|xls|csv|docx|pptx)$/i.test(p || '');
 }
 
+const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg', 'avif'];
+const TEXT_EXT = [
+  'txt', 'log', 'json', 'jsonc', 'xml', 'yaml', 'yml', 'ini', 'toml', 'env', 'conf',
+  'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'c', 'cc', 'cpp', 'h', 'hpp',
+  'java', 'cs', 'php', 'sh', 'bash', 'bat', 'ps1', 'css', 'scss', 'less', 'sql',
+];
+
+/** What the in-app preview can render for a local file (beyond web URLs). */
+export function previewKind(p: string): 'office' | 'image' | 'html' | 'md' | 'text' | '' {
+  const ext = (String(p).match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  if (['xlsx', 'xlsm', 'xls', 'csv', 'docx', 'pptx'].includes(ext)) return 'office';
+  if (IMG_EXT.includes(ext)) return 'image';
+  if (ext === 'html' || ext === 'htm') return 'html';
+  if (ext === 'md' || ext === 'markdown') return 'md';
+  if (TEXT_EXT.includes(ext)) return 'text';
+  return '';
+}
+export function isPreviewableFile(p: string): boolean {
+  return previewKind(p) !== '';
+}
+
 function escHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
 }
@@ -345,6 +366,18 @@ export async function officePreviewHtml(p: string): Promise<string> {
     const mammoth = m.convertToHtml ? m : m.default!;
     const result = await mammoth.convertToHtml!({ arrayBuffer: bytes.buffer });
     return `<div class="o-doc">${result.value || '<p>(empty document)</p>'}</div>`;
+  }
+
+  if (IMG_EXT.includes(ext)) {
+    const b64 = await readBytesBase64(p);
+    const mime =
+      ext === 'svg' ? 'image/svg+xml' : ext === 'jpg' ? 'image/jpeg' : ext === 'ico' ? 'image/x-icon' : `image/${ext}`;
+    return `<div class="o-imgwrap"><img class="o-img" src="data:${mime};base64,${b64}" alt=""></div>`;
+  }
+
+  if (TEXT_EXT.includes(ext)) {
+    const t = await fs.readTextFile(p);
+    return `<pre class="o-text">${escHtml(t)}</pre>`;
   }
 
   const text = await readOffice(p);

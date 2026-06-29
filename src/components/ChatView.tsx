@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
-import { KeyRound, ListTodo, MessageSquare, Target } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type MouseEvent } from 'react';
+import { KeyRound, ListTodo, MessageSquare, MoreHorizontal, PanelLeft, Target } from 'lucide-react';
 import { Composer } from './Composer';
 import { Message } from './Message';
 import { StatusCard } from './StatusCard';
 import { TodoPanel } from './TodoPanel';
 import { useI18n } from '../lib/i18n';
+import { showContextMenu } from '../lib/contextMenu';
 import type { ChatController } from '../lib/useChat';
 import type { Message as Msg } from '../lib/types';
 
@@ -142,23 +143,85 @@ export function ChatView({
     const id = activeConversation?.id ?? controller.newConversation().id;
     await controller.setConvCwd(id);
   };
+
+  // Content-header: rename inline + the conversation "⋯" menu.
+  const [renaming, setRenaming] = useState(false);
+  const [renameText, setRenameText] = useState('');
+  const startRename = () => {
+    if (!activeConversation) return;
+    setRenameText(activeConversation.title);
+    setRenaming(true);
+  };
+  const commitRename = () => {
+    if (activeConversation && renameText.trim()) controller.renameConversation(activeConversation.id, renameText.trim());
+    setRenaming(false);
+  };
+  const openConvMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    const c = activeConversation;
+    if (!c) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    showContextMenu(r.right, r.bottom + 4, [
+      { label: t('rename'), onClick: startRename },
+      { label: c.pinned ? t('unpin') : t('pin'), onClick: () => controller.togglePin(c.id) },
+      { label: c.archived ? t('unarchive') : t('archive'), onClick: () => controller.toggleArchive(c.id) },
+      { label: t('duplicate'), onClick: () => controller.duplicateConversation(c.id) },
+      ...(activeCwd ? [{ label: t('ctxOpenFolder'), onClick: () => controller.openWorkingDir(c.id) }] : []),
+      { label: t('delete'), danger: true, onClick: () => controller.deleteConversation(c.id) },
+    ]);
+  };
   const clearProject = () => {
     if (activeConversation?.id) controller.clearConvCwd(activeConversation.id);
   };
 
   return (
     <div className="chat">
-      <button
-        className={`panel-toggle ${controller.panelOpen ? 'active' : ''}`}
-        onClick={controller.togglePanel}
-        title={t('panelToggle')}
-        aria-label={t('panelToggle')}
-      >
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
-          <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
-          <line x1="10" y1="2.5" x2="10" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
-        </svg>
-      </button>
+      <div className="chat-header">
+        <button
+          className="chat-hbtn"
+          onClick={controller.toggleSidebar}
+          title={t('toggleSidebar')}
+          aria-label={t('toggleSidebar')}
+        >
+          <PanelLeft size={16} strokeWidth={1.9} />
+        </button>
+        {renaming ? (
+          <input
+            className="chat-htitle-input"
+            autoFocus
+            value={renameText}
+            onChange={(e) => setRenameText(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitRename();
+              else if (e.key === 'Escape') setRenaming(false);
+            }}
+          />
+        ) : (
+          <span
+            className="chat-htitle"
+            title={activeConversation?.title || ''}
+            onDoubleClick={startRename}
+          >
+            {activeConversation?.title || t('newChat')}
+          </span>
+        )}
+        {activeConversation && (
+          <button className="chat-hbtn" onClick={openConvMenu} title={t('more')} aria-label={t('more')}>
+            <MoreHorizontal size={17} strokeWidth={1.9} />
+          </button>
+        )}
+        <button
+          className={`chat-hbtn ${controller.panelOpen ? 'active' : ''}`}
+          onClick={controller.togglePanel}
+          title={t('panelToggle')}
+          aria-label={t('panelToggle')}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden>
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <line x1="10" y1="2.5" x2="10" y2="13.5" stroke="currentColor" strokeWidth="1.3" />
+          </svg>
+        </button>
+      </div>
       {!settings.apiKey && (
         <div className="apikey-banner" onClick={onOpenSettings}>
           <KeyRound size={15} strokeWidth={1.9} /> {t('apiKeyBanner')}

@@ -14,6 +14,7 @@ export interface PanelPrefs {
   width?: number;
   url?: string;
   sidebarWidth?: number;
+  sidebarOpen?: boolean;
   zoom?: number;
 }
 

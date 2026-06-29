@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw, Undo2 } from 'lucide-react';
-import { shell } from '../api';
+import { fs, shell } from '../api';
 import { extractChanges } from '../lib/diff';
 import { useI18n } from '../lib/i18n';
 import { isPrivateUrl } from '../lib/tools';
-import { isOfficeFile, officePreviewHtml } from '../lib/office';
+import { officePreviewHtml, previewKind, isPreviewableFile } from '../lib/office';
+import { Markdown } from './Markdown';
 import { TerminalPanel } from './TerminalPanel';
 import type { ChatController } from '../lib/useChat';
 import type { Conversation } from '../lib/types';
@@ -176,40 +177,52 @@ function PreviewTab({ controller }: { controller: ChatController }) {
   const { t } = useI18n();
   const [url, setUrl] = useState(controller.previewUrl);
   const [src, setSrc] = useState(controller.previewUrl);
-  const [officeHtml, setOfficeHtml] = useState<string | null>(null);
-  const [officeErr, setOfficeErr] = useState('');
+  const [docHtml, setDocHtml] = useState<string | null>(null); // office/image/text → wrapped iframe
+  const [rawHtml, setRawHtml] = useState<string | null>(null); // .html file → rendered as a page
+  const [mdText, setMdText] = useState<string | null>(null); // .md → React Markdown
+  const [loadErr, setLoadErr] = useState('');
   useEffect(() => {
     setUrl(controller.previewUrl);
     setSrc(controller.previewUrl);
   }, [controller.previewUrl]);
 
-  const office = isOfficeFile(src);
-  // Load + render Office files (xlsx/docx/pptx) as HTML when the target is one.
+  const isHttp = /^https?:\/\//i.test(src);
+  const kind = isHttp ? 'web' : previewKind(src); // '' | web | office | image | html | md | text
+  const cwd = controller.activeConversation?.cwd;
+
+  // Load + render a local file by kind (web URLs go straight to the <iframe src>).
   useEffect(() => {
-    if (!office || !src) {
-      setOfficeHtml(null);
-      setOfficeErr('');
-      return;
-    }
+    setDocHtml(null);
+    setRawHtml(null);
+    setMdText(null);
+    setLoadErr('');
+    if (!src || kind === 'web' || kind === '') return;
     let cancelled = false;
-    setOfficeHtml(null);
-    setOfficeErr('');
-    officePreviewHtml(src)
-      .then((html) => {
-        if (!cancelled) setOfficeHtml(html);
-      })
-      .catch((e) => {
-        if (!cancelled) setOfficeErr(e?.message || String(e));
-      });
+    (async () => {
+      try {
+        if (kind === 'md') {
+          const txt = await fs.readTextFile(src);
+          if (!cancelled) setMdText(txt);
+        } else if (kind === 'html') {
+          const txt = await fs.readTextFile(src);
+          if (!cancelled) setRawHtml(txt);
+        } else {
+          const html = await officePreviewHtml(src); // office / image / text
+          if (!cancelled) setDocHtml(html);
+        }
+      } catch (e: any) {
+        if (!cancelled) setLoadErr(e?.message || String(e));
+      }
+    })();
     return () => {
       cancelled = true;
     };
     // previewNonce: re-render when the agent rewrites the same file this turn (live refresh).
-  }, [office, src, controller.previewNonce]);
+  }, [kind, src, controller.previewNonce]);
 
   const go = () => {
     let u = url.trim();
-    if (u && !isOfficeFile(u) && !/^https?:\/\//i.test(u)) u = 'http://' + u;
+    if (u && !isPreviewableFile(u) && !/^https?:\/\//i.test(u)) u = 'http://' + u;
     setSrc(u);
     controller.setPreviewUrl(u);
   };
@@ -219,8 +232,8 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     requestAnimationFrame(() => setSrc(cur));
   };
 
-  const officeDoc =
-    officeHtml == null
+  const wrappedDoc =
+    docHtml == null
       ? ''
       : `<!doctype html><html><head><meta charset="utf-8"><style>
   body{font:13px/1.55 system-ui,Segoe UI,sans-serif;color:#1a1a1a;background:#f3f3f4;margin:0;padding:16px;}
@@ -249,7 +262,9 @@ function PreviewTab({ controller }: { controller: ChatController }) {
   .o-tabs label{padding:5px 13px;font-size:12px;color:#666;cursor:pointer;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;background:#e9e9ea;}
   .o-panel{display:none;}
   .o-empty{color:#888;padding:20px;}
-</style></head><body>${officeHtml}</body></html>`;
+  .o-imgwrap{display:flex;justify-content:center;}
+  .o-img{max-width:100%;height:auto;display:block;border-radius:6px;box-shadow:0 1px 8px rgba(0,0,0,.12);}
+</style></head><body>${docHtml}</body></html>`;
 
   return (
     <div className="preview-tab">
@@ -272,20 +287,36 @@ function PreviewTab({ controller }: { controller: ChatController }) {
         <button
           className="ghost"
           onClick={() => src && shell.open(src).catch(() => {})}
-          title={office ? t('panelOpenFile') : t('panelOpenBrowser')}
+          title={kind !== 'web' && kind !== '' ? t('panelOpenFile') : t('panelOpenBrowser')}
         >
           <ExternalLink size={14} strokeWidth={1.9} />
         </button>
       </div>
       {!src ? (
         <div className="side-empty">{t('panelNoPreview')}</div>
-      ) : office ? (
-        officeErr ? (
-          <div className="side-empty">{officeErr}</div>
-        ) : officeHtml == null ? (
+      ) : kind === '' ? (
+        <div className="side-empty">{t('panelNoPreview')}</div>
+      ) : loadErr ? (
+        <div className="side-empty">{loadErr}</div>
+      ) : kind === 'md' ? (
+        mdText == null ? (
           <div className="side-empty">{t('panelLoading')}</div>
         ) : (
-          <iframe className="preview-frame" srcDoc={officeDoc} title="office preview" sandbox="" />
+          <div className="preview-md markdown">
+            <Markdown text={mdText} cwd={cwd} />
+          </div>
+        )
+      ) : kind === 'html' ? (
+        rawHtml == null ? (
+          <div className="side-empty">{t('panelLoading')}</div>
+        ) : (
+          <iframe className="preview-frame" srcDoc={rawHtml} title="html preview" sandbox="" />
+        )
+      ) : kind === 'office' || kind === 'image' || kind === 'text' ? (
+        docHtml == null ? (
+          <div className="side-empty">{t('panelLoading')}</div>
+        ) : (
+          <iframe className="preview-frame" srcDoc={wrappedDoc} title="file preview" sandbox="" />
         )
       ) : isPrivateUrl(src) ? (
         // Only preview local servers in-app: web-security is disabled, so a remote

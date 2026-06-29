@@ -11,6 +11,8 @@ type Dict = Record<string, string>;
 
 const en: Dict = {
   newChat: 'New chat',
+  toggleSidebar: 'Toggle sidebar',
+  more: 'More',
   noConversations: 'No conversations yet',
   settings: 'Settings',
   delete: 'Delete',
@@ -274,6 +276,8 @@ const en: Dict = {
 
 const zh: Dict = {
   newChat: '新对话',
+  toggleSidebar: '切换侧边栏',
+  more: '更多',
   noConversations: '暂无对话',
   settings: '设置',
   delete: '删除',
