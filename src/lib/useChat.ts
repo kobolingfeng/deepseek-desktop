@@ -121,7 +121,8 @@ const PREVIEW_HINT =
   'When the user asks you to build, make, run, or SHOW a web page or web app, do not stop at writing files — also START A LOCAL SERVER so it can be viewed, using start_process in the working directory (e.g. `npx --yes serve . -l 5173`, or `python -m http.server 5173`). Then state the address as a Markdown link like [http://localhost:5173](http://localhost:5173). The desktop app automatically opens that URL in its built-in preview pane, so always surface it.';
 const MEMORY_HINT =
   'You have PERSISTENT MEMORY (any text under "Global user memory" / "Project instructions" above was remembered earlier and is loaded automatically). When the user states a durable preference, a fact about themselves, or a project convention worth keeping across sessions, call `remember` to save it (scope "global" for cross-project user facts, "project" for this repo). When the user asks to drop/forget something, call `forget` with a short query of what to remove. Do NOT save secrets/credentials, one-off/transient details, or anything already in memory. Remember silently as part of the work — do not ask permission.\n\n' +
-  'You can also manage reusable SKILLS — named instruction packs the user invokes as "/<id> <topic>". When the user asks to add a skill/workflow/command, call `create_skill` (id, name, description, hint = the full instructions for that workflow); when they ask to remove one, call `delete_skill` (id). Built-in skills cannot be overwritten or deleted.';
+  'You can also manage reusable SKILLS — named instruction packs the user invokes as "/<id> <topic>". When the user asks to add a skill/workflow/command, call `create_skill` (id, name, description, hint = the full instructions for that workflow); when they ask to remove one, call `delete_skill` (id). Built-in skills cannot be overwritten or deleted.\n\n' +
+  'And you can manage MCP tool servers on request: `add_mcp_server` (name, url) connects one (the user will be asked to approve), `remove_mcp_server` (name) disconnects it.';
 // Codex-style context compaction: when the live context nears the model's window,
 // summarize the older messages into a handoff "checkpoint" and keep the recent
 // ones. Triggered on the real prompt-token count (~75% of the 1M window).
@@ -969,7 +970,7 @@ export function useChat() {
     const subTools = TOOL_SCHEMAS.filter((s) => {
       const n = (s.function as { name: string }).name;
       return (
-        !['run_subagent', 'remember', 'forget', 'create_skill', 'delete_skill'].includes(n) &&
+        !['run_subagent', 'remember', 'forget', 'create_skill', 'delete_skill', 'add_mcp_server', 'remove_mcp_server'].includes(n) &&
         toolPerm(n, settingsRef.current) !== 'off'
       );
     });
@@ -1328,6 +1329,49 @@ export function useChat() {
               }
             } catch (e: any) {
               out = 'Error deleting skill: ' + (e?.message || String(e));
+              isErr = true;
+            }
+          } else if (tc.name === 'add_mcp_server') {
+            // Connecting an external MCP exposes its tools to the agent → gate behind approval.
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const name = String(a.name ?? '').trim().replace(/[^a-zA-Z0-9-]/g, '');
+              const url = String(a.url ?? '').trim();
+              if (!name || !url) {
+                out = 'Error: add_mcp_server needs a name and an http(s) url.';
+                isErr = true;
+              } else if (!/^https?:\/\//i.test(url)) {
+                out = 'Error: the MCP url must be an http(s) URL.';
+                isErr = true;
+              } else {
+                const approved = settingsRef.current.approvalMode === 'full' ? true : await requestApproval(conv.id, tc);
+                if (!approved || turn.stopped) {
+                  out = turn.stopped ? 'Stopped.' : 'User declined to add this MCP server.';
+                  isErr = true;
+                } else {
+                  const cur = settingsRef.current.mcpServers || [];
+                  updateSettings({ mcpServers: [...cur.filter((s) => s.name !== name), { name, url }] });
+                  out = `Added MCP server "${name}" (${url}) — connecting…`;
+                }
+              }
+            } catch (e: any) {
+              out = 'Error adding MCP server: ' + (e?.message || String(e));
+              isErr = true;
+            }
+          } else if (tc.name === 'remove_mcp_server') {
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const name = String(a.name ?? '').trim();
+              const cur = settingsRef.current.mcpServers || [];
+              if (!cur.some((s) => s.name === name)) {
+                out = `No MCP server named "${name}".`;
+                isErr = true;
+              } else {
+                updateSettings({ mcpServers: cur.filter((s) => s.name !== name) });
+                out = `Removed MCP server "${name}".`;
+              }
+            } catch (e: any) {
+              out = 'Error removing MCP server: ' + (e?.message || String(e));
               isErr = true;
             }
           } else if (tc.name.startsWith('mcp__')) {

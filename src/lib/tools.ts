@@ -27,6 +27,8 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'forget', defaultPerm: 'allow' },
   { name: 'create_skill', defaultPerm: 'allow' },
   { name: 'delete_skill', defaultPerm: 'allow' },
+  { name: 'add_mcp_server', defaultPerm: 'ask' },
+  { name: 'remove_mcp_server', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'allow' },
   { name: 'write_file', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
@@ -297,6 +299,34 @@ export const TOOL_SCHEMAS = [
         type: 'object',
         properties: { id: { type: 'string', description: 'The skill id to delete.' } },
         required: ['id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_mcp_server',
+      description:
+        'Connect an MCP (Model Context Protocol) tool server so its tools become available. Use it when the user asks to add/connect an MCP server. The user is asked to approve before it connects.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Short id for the server (letters/digits/hyphens).' },
+          url: { type: 'string', description: 'The MCP server endpoint (http/https URL).' },
+        },
+        required: ['name', 'url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_mcp_server',
+      description: 'Disconnect and remove a configured MCP server by its name.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string', description: 'The MCP server name to remove.' } },
+        required: ['name'],
       },
     },
   },
@@ -952,6 +982,10 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Create skill', detail: '/' + String(a.id || '') };
     case 'delete_skill':
       return { title: 'Delete skill', detail: '/' + String(a.id || '') };
+    case 'add_mcp_server':
+      return { title: 'Add MCP server', detail: `${a.name || ''} (${a.url || ''})` };
+    case 'remove_mcp_server':
+      return { title: 'Remove MCP server', detail: String(a.name || '') };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':
