@@ -75,7 +75,15 @@ export function saveGroups(g: Group[]): void {
 export function loadProfiles(): Record<string, Profile> {
   try {
     const raw = localStorage.getItem(PROFILES_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, Profile>) : {};
+    const o = raw ? JSON.parse(raw) : {};
+    if (!o || typeof o !== 'object') return {};
+    const out: Record<string, Profile> = {};
+    for (const [k, v] of Object.entries(o as Record<string, unknown>)) {
+      if (!v || typeof v !== 'object') continue;
+      // Coerce the field that's later .trim()'d during turn setup so malformed storage can't crash.
+      out[k] = { ...(v as Profile), systemPrompt: typeof (v as Profile).systemPrompt === 'string' ? (v as Profile).systemPrompt : '' };
+    }
+    return out;
   } catch {
     return {};
   }

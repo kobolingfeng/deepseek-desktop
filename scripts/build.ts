@@ -118,7 +118,7 @@ if (!nativeOnly) {
         console.log('📦 Building frontend...');
 
         const result = await Bun.build({
-            entrypoints: [join(ROOT, 'src', 'main.ts')],
+            entrypoints: [join(ROOT, 'src', 'main.tsx')],
             outdir: DIST,
             minify: true,
             target: 'browser',
@@ -131,7 +131,7 @@ if (!nativeOnly) {
 
         const jsContent = await Bun.file(join(DIST, 'main.js')).text();
 
-        let html = await Bun.file(join(ROOT, 'src', 'index.html')).text();
+        let html = await Bun.file(join(ROOT, 'index.html')).text();
         let inlined = false;
         if (singleExe) {
             // Escape any literal </script> in the bundle so it can't terminate the inline
@@ -139,15 +139,15 @@ if (!nativeOnly) {
             const safeJs = jsContent.replace(/<\/script>/gi, '<\\/script>');
             const before = html;
             html = html.replace(
-                /<script[^>]*src=["']\.\/main\.ts["'][^>]*><\/script>/,
+                /<script[^>]*src=["']\/src\/main\.tsx["'][^>]*><\/script>/,
                 `<script type="module">${safeJs}</script>`
             );
             inlined = html !== before;
             // If the entry <script> didn't match (custom tag, Vite, etc.), don't silently
-            // ship an unservable ./main.ts — fall back to referencing the packed main.js.
-            if (!inlined) html = html.replace(/\.\/main\.ts/g, './main.js');
+            // ship an unservable /src/main.tsx — fall back to referencing the packed main.js.
+            if (!inlined) html = html.replace(/\/src\/main\.tsx/g, './main.js');
         } else {
-            html = html.replace('./main.ts', './main.js');
+            html = html.replace('/src/main.tsx', './main.js');
         }
         await Bun.write(join(DIST, 'index.html'), html);
         console.log('✓ Frontend built' + (singleExe ? (inlined ? ' (single-exe: JS inlined)' : ' (single-exe: JS from pak)') : ''));

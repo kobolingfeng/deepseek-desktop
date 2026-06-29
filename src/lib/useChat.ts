@@ -18,7 +18,7 @@ import {
   saveSettings,
 } from './storage';
 import {
-  DANGEROUS_TOOLS,
+  PLAN_TOOLS,
   deriveApprovalMode,
   describeTool,
   executeTool,
@@ -1034,6 +1034,7 @@ export function useChat() {
             try {
               if (EDIT_FILE_TOOLS.has(sub.name)) {
                 out = await withFileLock(async () => {
+                  if (signal.aborted) return '(sub-agent cancelled)';
                   await snapshotEdit(checkpoint, sub, effCwd);
                   return executeTool(sub, subCfg, { cancelId: cid, signal });
                 });
@@ -1140,11 +1141,9 @@ export function useChat() {
           (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
         );
         if (mode === 'plan') {
-          // Plan mode is read-only: drop dangerous tools AND the state-mutating self-management tools.
-          activeTools = activeTools.filter((s) => {
-            const n = (s.function as { name: string }).name;
-            return !DANGEROUS_TOOLS.includes(n) && !SELF_MGMT_TOOLS.includes(n);
-          });
+          // Plan mode is read-only: keep ONLY the read-only/research allowlist (excludes run_subagent,
+          // stop_process, MCP, and every mutating/self-management tool by construction).
+          activeTools = activeTools.filter((s) => PLAN_TOOLS.includes((s.function as { name: string }).name));
         } else if (turnMcp.length) {
           activeTools = [...activeTools, ...mcpToolSchemas(turnMcp)];
         }
@@ -1510,7 +1509,9 @@ export function useChat() {
               try {
                 if (EDIT_FILE_TOOLS.has(tc.name)) {
                   // Snapshot + write under the global file lock so concurrent turns don't clobber.
+                  // Re-check abort AFTER acquiring the lock so a Stop pressed while queued skips the write.
                   out = await withFileLock(async () => {
+                    if (turn.stopped || ctrl.signal.aborted) return 'Stopped.';
                     await snapshotEdit(checkpoint, tc, effCwd);
                     return executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
                   });

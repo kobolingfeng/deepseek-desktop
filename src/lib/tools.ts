@@ -10,7 +10,12 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 // runs synchronously per line, and a per-line catastrophic match can't be interrupted by the
 // scan deadline, so reject these up front rather than freeze the renderer.
 function looksCatastrophic(src: string): boolean {
-  return /\([^)]*[+*}][^)]*\)\s*[+*{]/.test(src);
+  // (a+)+ / (\w+)* — a quantified group whose body has a quantifier.
+  if (/\([^)]*[+*}][^)]*\)\s*[+*{]/.test(src)) return true;
+  // (a|aa)+ — a quantified alternation group (ambiguous overlap → exponential). Best-effort;
+  // a fully sound check needs RE2/a worker, but this catches the common hand-written shapes.
+  if (/\([^)]*\|[^)]*\)\s*[+*{]/.test(src)) return true;
+  return false;
 }
 
 /** Tool registry: drives the model schema, the permissions UI, and defaults. */
@@ -68,7 +73,10 @@ export function isKnownTool(name: string): boolean {
 // Codex-style presets: Read Only / Auto (default) / Full Access.
 export type ApprovalMode = 'read' | 'auto' | 'full';
 export const DANGEROUS_TOOLS = ['write_file', 'edit_file', 'write_excel', 'write_word', 'write_pptx', 'write_morph_pptx', 'run_command', 'start_process', 'write_process'];
-const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
+export const READONLY_TOOLS = ['read_file', 'list_dir', 'find_files', 'search_files', 'read_office', 'update_plan', 'read_process'];
+// Plan mode is read-only: a POSITIVE allowlist (read-only tools + web research) so any
+// mutating/spawning tool — incl. run_subagent, stop_process, MCP — is excluded by default.
+export const PLAN_TOOLS = [...READONLY_TOOLS, 'web_search', 'read_url'];
 // Commands that execute/inject shell work — confirmed even in Auto (we have no sandbox).
 const CONFIRM_IN_AUTO = ['run_command', 'start_process', 'write_process', 'add_mcp_server'];
 

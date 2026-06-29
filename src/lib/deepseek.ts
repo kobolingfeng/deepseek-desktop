@@ -157,6 +157,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
   let rawErrBuf = '';
   let usage: Usage | null = null;
   let sawDone = false; // did we see the SSE `[DONE]` sentinel? (to detect truncated streams)
+  let badChunk = false; // a non-empty data: line failed JSON.parse (dropped delta/tool-arg = corrupt)
   const toolCalls: ToolCall[] = [];
 
   function handleLine(line: string) {
@@ -172,6 +173,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     try {
       obj = JSON.parse(payload);
     } catch {
+      badChunk = true;
       return;
     }
     if (obj.usage) usage = obj.usage; // the final usage chunk has an empty choices array
@@ -263,7 +265,9 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
           flushSse();
           // A proper stream ends with `[DONE]` or a finish_reason; neither means the
           // connection was cut mid-response — fail instead of accepting a truncated reply.
-          if (!sawDone && !finishReason)
+          if (badChunk)
+            rejectFn(new Error('the model stream contained a malformed chunk — the response may be corrupt. Please retry.'));
+          else if (!sawDone && !finishReason)
             rejectFn(new Error('the model stream ended without a completion marker — the response may be truncated. Please retry.'));
           else resolveFn(finalResult());
         }
@@ -317,7 +321,9 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         flushSse();
         if (!settled) {
           settled = true;
-          if (!sawDone && !finishReason)
+          if (badChunk)
+            rejectFn(new Error('the model stream contained a malformed chunk — the response may be corrupt. Please retry.'));
+          else if (!sawDone && !finishReason)
             rejectFn(new Error('the model stream ended without a completion marker — the response may be truncated. Please retry.'));
           else resolveFn(finalResult());
         }

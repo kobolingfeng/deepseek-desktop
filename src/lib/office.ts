@@ -8,9 +8,11 @@ function psQuote(p: string): string {
   return "'" + String(p).replace(/'/g, "''") + "'";
 }
 
+let tempSeq = 0;
 async function tempPath(ext: string): Promise<string> {
   const dir = await path.temp();
-  return dir.replace(/[\\/]+$/, '') + '\\dsoffice_' + Math.random().toString(36).slice(2) + ext;
+  // Process-unique counter + random so staged temp files can't collide between concurrent ops.
+  return dir.replace(/[\\/]+$/, '') + '\\dsoffice_' + (tempSeq++).toString(36) + '_' + Math.random().toString(36).slice(2) + ext;
 }
 
 /** Read a binary file as base64 (staged through a temp file to dodge stdout limits). */
@@ -235,7 +237,9 @@ async function unzipEntries(file: string, likeGlob: string): Promise<{ name: str
     'Add-Type -AssemblyName System.IO.Compression.FileSystem;',
     `$zip=[IO.Compression.ZipFile]::OpenRead(${psQuote(file)});`,
     `$es=$zip.Entries | Where-Object { ($_.FullName -replace '\\\\','/') -like ${psQuote(likeGlob)} } | Sort-Object FullName;`,
-    `$o=foreach($e in $es){ $sr=New-Object IO.StreamReader($e.Open()); $t=$sr.ReadToEnd(); $sr.Close(); "<<<E:"+($e.FullName -replace '\\\\','/')+">>>"+$t };`,
+    // Skip any entry whose UNCOMPRESSED size is huge (zip-bomb defense — the file-size cap can't
+    // see expansion). 64 MB/entry is far above any real OOXML part.
+    `$o=foreach($e in $es){ if($e.Length -gt 67108864){ continue }; $sr=New-Object IO.StreamReader($e.Open()); $t=$sr.ReadToEnd(); $sr.Close(); "<<<E:"+($e.FullName -replace '\\\\','/')+">>>"+$t };`,
     '$zip.Dispose();',
     '[Console]::Out.Write(($o -join ""))',
   ].join(' ');

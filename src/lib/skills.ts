@@ -80,7 +80,16 @@ export function loadUserSkills(): UserSkill[] {
   try {
     const raw = localStorage.getItem(USER_SKILLS_KEY);
     const a = raw ? JSON.parse(raw) : [];
-    return Array.isArray(a) ? a.filter((s) => s && typeof s.id === 'string' && typeof s.hint === 'string') : [];
+    if (!Array.isArray(a)) return [];
+    return a
+      .filter((s) => s && /^[a-z0-9-]{1,40}$/.test(String(s.id)) && typeof s.hint === 'string')
+      .map((s) => ({
+        id: String(s.id),
+        name: String(s.name ?? s.id).slice(0, 80),
+        desc: String(s.desc ?? '').slice(0, 200),
+        icon: typeof s.icon === 'string' ? s.icon : undefined,
+        hint: String(s.hint).slice(0, 20000),
+      }));
   } catch {
     return [];
   }
