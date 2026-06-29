@@ -119,6 +119,8 @@ const LINK_HINT =
   'When you create, edit, delete, or read a local file, reference it as a Markdown link to its path so the user can open it, e.g. [src/app.ts](src/app.ts) or an absolute path. When you start or mention a local web server / preview, write its address as a Markdown link, e.g. [http://localhost:5173](http://localhost:5173). Only link real local paths/URLs you actually touched — never invented ones.';
 const PREVIEW_HINT =
   'When the user asks you to build, make, run, or SHOW a web page or web app, do not stop at writing files — also START A LOCAL SERVER so it can be viewed, using start_process in the working directory (e.g. `npx --yes serve . -l 5173`, or `python -m http.server 5173`). Then state the address as a Markdown link like [http://localhost:5173](http://localhost:5173). The desktop app automatically opens that URL in its built-in preview pane, so always surface it.';
+const MEMORY_HINT =
+  'You have PERSISTENT MEMORY (any text under "Global user memory" / "Project instructions" above was remembered from earlier and is loaded automatically). When the user states a durable preference, a fact about themselves, or a project convention worth keeping across sessions, call the `remember` tool to save it (scope "global" for cross-project user facts, "project" for this repo). Do NOT save secrets/credentials, one-off/transient details, or anything already in memory. Remember silently as part of the work — do not ask permission.';
 // Codex-style context compaction: when the live context nears the model's window,
 // summarize the older messages into a handoff "checkpoint" and keep the recent
 // ones. Triggered on the real prompt-token count (~75% of the 1M window).
@@ -187,18 +189,21 @@ async function detectProjectMcp(dir: string): Promise<{ name: string; url: strin
 // the way codex / Claude Code do, and fold them into the system context.
 async function loadProjectContext(dir: string): Promise<string> {
   if (!dir) return '';
+  // Merge ALL present files (not first-match) so agent-written project memory in .deepseek.md
+  // still loads even when the repo also ships an AGENTS.md / CLAUDE.md.
+  const parts: string[] = [];
   for (const name of ['AGENTS.md', 'CLAUDE.md', '.deepseek.md']) {
     try {
       const p = dir.replace(/[\\/]+$/, '') + '\\' + name;
       if (await fs.exists(p)) {
         const c = await fs.readTextFile(p);
-        if (c.trim()) return `Project instructions (${name}):\n\n` + c.slice(0, 8000);
+        if (c.trim()) parts.push(`Project instructions (${name}):\n\n` + c.slice(0, 8000));
       }
     } catch {
       /* ignore */
     }
   }
-  return '';
+  return parts.join('\n\n');
 }
 
 function conversationToMarkdown(conv: Conversation): string {
@@ -944,7 +949,7 @@ export function useChat() {
     };
     const subTools = TOOL_SCHEMAS.filter((s) => {
       const n = (s.function as { name: string }).name;
-      return n !== 'run_subagent' && toolPerm(n, settingsRef.current) !== 'off';
+      return n !== 'run_subagent' && n !== 'remember' && toolPerm(n, settingsRef.current) !== 'off';
     });
     const msgs: Message[] = [{ id: newId('u'), role: 'user', content: prompt, createdAt: Date.now() }];
     let last = '';
@@ -1030,9 +1035,10 @@ export function useChat() {
       const safety = modelSupportsTools(turnModel) ? TOOL_SAFETY : '';
       const linkHint = modelSupportsTools(turnModel) ? LINK_HINT : '';
       const previewHint = modelSupportsTools(turnModel) ? PREVIEW_HINT : '';
+      const memoryHint = modelSupportsTools(turnModel) ? MEMORY_HINT : '';
       const turnCfg: Settings = {
         ...cfg,
-        systemPrompt: [modeText, turn.skillHint, safety, linkHint, previewHint, globalMem, projectCtx, cfg.systemPrompt]
+        systemPrompt: [modeText, turn.skillHint, safety, linkHint, previewHint, memoryHint, globalMem, projectCtx, cfg.systemPrompt]
           .filter((s) => s && s.trim())
           .join('\n\n'),
       };
@@ -1177,6 +1183,49 @@ export function useChat() {
               out = `Plan updated (${conv.todos?.length ?? 0} steps).`;
             } catch {
               out = 'Invalid plan payload.';
+              isErr = true;
+            }
+          } else if (tc.name === 'remember') {
+            // Agent-driven memory: persist a durable fact that auto-loads into future turns.
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const content = String(a.content ?? a.text ?? '').trim().replace(/\s+/g, ' ');
+              const scope = a.scope === 'project' ? 'project' : 'global';
+              const line = '- ' + content;
+              if (!content) {
+                out = 'Error: remember requires non-empty content.';
+                isErr = true;
+              } else if (scope === 'project') {
+                if (!effCwd) {
+                  out = 'No working directory set — cannot save project memory. Use scope "global" instead.';
+                  isErr = true;
+                } else {
+                  const file = effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md';
+                  let prev = '';
+                  try {
+                    if (await fs.exists(file)) prev = await fs.readTextFile(file);
+                  } catch {
+                    /* new file */
+                  }
+                  if (prev.split('\n').some((l) => l.trim() === line)) {
+                    out = 'Already in project memory: ' + content;
+                  } else {
+                    const next = prev.trim() ? prev.replace(/\s*$/, '') + '\n' + line + '\n' : '# Project memory\n\n' + line + '\n';
+                    await fs.writeTextFile(file, next);
+                    out = 'Remembered (project): ' + content;
+                  }
+                }
+              } else {
+                const prev = settingsRef.current.globalMemory || '';
+                if (prev.split('\n').some((l) => l.trim() === line)) {
+                  out = 'Already in memory: ' + content;
+                } else {
+                  updateSettings({ globalMemory: prev.trim() ? prev.replace(/\s*$/, '') + '\n' + line : line });
+                  out = 'Remembered (global): ' + content;
+                }
+              }
+            } catch (e: any) {
+              out = 'Error saving memory: ' + (e?.message || String(e));
               isErr = true;
             }
           } else if (tc.name.startsWith('mcp__')) {

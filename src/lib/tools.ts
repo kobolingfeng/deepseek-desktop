@@ -23,6 +23,7 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_url', defaultPerm: 'allow' },
   { name: 'read_office', defaultPerm: 'allow' },
   { name: 'update_plan', defaultPerm: 'allow' },
+  { name: 'remember', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'allow' },
   { name: 'write_file', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
@@ -218,6 +219,27 @@ export const TOOL_SCHEMAS = [
           },
         },
         required: ['todos'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remember',
+      description:
+        'Persist a durable fact to memory so it is auto-loaded into EVERY future conversation. Use it when the user shares a lasting preference, a fact about themselves, or a project convention worth keeping (e.g. "always reply in Chinese", "this repo uses bun, not npm"). Do NOT save secrets/credentials, transient details, or anything already in memory. Keep each entry to one concise sentence.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'The single fact to remember, as one concise sentence.' },
+          scope: {
+            type: 'string',
+            enum: ['global', 'project'],
+            description:
+              "'global' = applies everywhere (user preferences/facts); 'project' = specific to the current working directory. Default 'global'.",
+          },
+        },
+        required: ['content'],
       },
     },
   },
@@ -865,6 +887,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Write Morph PPT', detail: a.path || '' };
     case 'update_plan':
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
+    case 'remember':
+      return { title: 'Remember', detail: String(a.content || '') };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':
