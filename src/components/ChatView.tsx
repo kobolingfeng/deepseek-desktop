@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef } from 'react';
 import { KeyRound, ListTodo, MessageSquare, Target } from 'lucide-react';
 import { Composer } from './Composer';
 import { Message } from './Message';
@@ -48,6 +48,35 @@ export function ChatView({
   const { activeConversation, generating, pendingApproval, settings } = controller;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+
+  // Keep the visible BOTTOM line fixed when the plan panel (just above the composer) expands or
+  // collapses: it grows/shrinks the messages viewport by dh, so shift scrollTop by the same dh —
+  // wherever the scrollbar currently is, the last line you saw stays the last line you see.
+  // A callback ref wires the observer up only while the plan is mounted.
+  const todoRoRef = useRef<ResizeObserver | null>(null);
+  const todoPrevHRef = useRef(0);
+  const setTodoRef = useCallback((node: HTMLDivElement | null) => {
+    todoRoRef.current?.disconnect();
+    todoRoRef.current = null;
+    if (!node) return;
+    todoPrevHRef.current = node.offsetHeight;
+    const ro = new ResizeObserver(() => {
+      const h = node.offsetHeight;
+      const dh = h - todoPrevHRef.current;
+      todoPrevHRef.current = h;
+      const sc = scrollerRef.current;
+      if (dh !== 0 && sc) {
+        // .messages has scroll-behavior:smooth — force an INSTANT adjustment so the per-frame
+        // compensation actually tracks the plan's height instead of lagging behind an animation.
+        const prev = sc.style.scrollBehavior;
+        sc.style.scrollBehavior = 'auto';
+        sc.scrollTop += dh;
+        sc.style.scrollBehavior = prev;
+      }
+    });
+    ro.observe(node);
+    todoRoRef.current = ro;
+  }, []);
 
   useLayoutEffect(() => {
     const el = scrollerRef.current;
@@ -251,7 +280,7 @@ export function ChatView({
       )}
 
       {activeConversation?.todos && activeConversation.todos.length > 0 && (
-        <TodoPanel todos={activeConversation.todos} />
+        <TodoPanel todos={activeConversation.todos} panelRef={setTodoRef} />
       )}
 
       <Composer

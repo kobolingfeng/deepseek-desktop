@@ -1,18 +1,18 @@
-import { useState } from 'react';
+import { useState, type Ref } from 'react';
 import { ListTodo } from 'lucide-react';
 import { useI18n } from '../lib/i18n';
 import type { TodoItem } from '../lib/types';
 
 const MARK: Record<string, string> = { done: '✓', doing: '◐', pending: '○' };
 
-export function TodoPanel({ todos }: { todos: TodoItem[] }) {
+export function TodoPanel({ todos, panelRef }: { todos: TodoItem[]; panelRef?: Ref<HTMLDivElement> }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(true);
   const done = todos.filter((x) => x.status === 'done').length;
   // Sits just above the composer; the list renders ABOVE the header so toggling expands
   // upward (the header stays put, pinned to the input box).
   return (
-    <div className="todo-panel">
+    <div className="todo-panel" ref={panelRef}>
       <div className={`todo-collapse ${open ? 'open' : ''}`}>
         <div className="todo-collapse-inner">
           <div className="todo-body">
