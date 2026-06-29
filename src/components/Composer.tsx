@@ -201,6 +201,11 @@ export function Composer({
         (controller.settings.language === 'zh' ? s.desc.zh : s.desc.en),
       insert: '/' + s.id + ' ',
     })),
+    ...controller.userSkills.map((s) => ({
+      cmd: s.id,
+      label: s.name + (s.desc ? ' · ' + s.desc : ''),
+      insert: '/' + s.id + ' ',
+    })),
     ...(controller.settings.customCommands || [])
       .filter((c) => c.name.trim() && c.prompt.trim())
       .map((c) => ({

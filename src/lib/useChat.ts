@@ -28,7 +28,7 @@ import {
   TOOL_SCHEMAS,
   toolPerm,
 } from './tools';
-import { parseSkillCommand } from './skills';
+import { parseSkillCommand, findSkill, loadUserSkills, saveUserSkills, type UserSkill } from './skills';
 import { isOfficeFile, readBytesBase64, writeBytesBase64 } from './office';
 import {
   FALLBACK_MODEL_IDS,
@@ -120,7 +120,8 @@ const LINK_HINT =
 const PREVIEW_HINT =
   'When the user asks you to build, make, run, or SHOW a web page or web app, do not stop at writing files — also START A LOCAL SERVER so it can be viewed, using start_process in the working directory (e.g. `npx --yes serve . -l 5173`, or `python -m http.server 5173`). Then state the address as a Markdown link like [http://localhost:5173](http://localhost:5173). The desktop app automatically opens that URL in its built-in preview pane, so always surface it.';
 const MEMORY_HINT =
-  'You have PERSISTENT MEMORY (any text under "Global user memory" / "Project instructions" above was remembered from earlier and is loaded automatically). When the user states a durable preference, a fact about themselves, or a project convention worth keeping across sessions, call the `remember` tool to save it (scope "global" for cross-project user facts, "project" for this repo). Do NOT save secrets/credentials, one-off/transient details, or anything already in memory. Remember silently as part of the work — do not ask permission.';
+  'You have PERSISTENT MEMORY (any text under "Global user memory" / "Project instructions" above was remembered earlier and is loaded automatically). When the user states a durable preference, a fact about themselves, or a project convention worth keeping across sessions, call `remember` to save it (scope "global" for cross-project user facts, "project" for this repo). When the user asks to drop/forget something, call `forget` with a short query of what to remove. Do NOT save secrets/credentials, one-off/transient details, or anything already in memory. Remember silently as part of the work — do not ask permission.\n\n' +
+  'You can also manage reusable SKILLS — named instruction packs the user invokes as "/<id> <topic>". When the user asks to add a skill/workflow/command, call `create_skill` (id, name, description, hint = the full instructions for that workflow); when they ask to remove one, call `delete_skill` (id). Built-in skills cannot be overwritten or deleted.';
 // Codex-style context compaction: when the live context nears the model's window,
 // summarize the older messages into a handoff "checkpoint" and keep the recent
 // ones. Triggered on the real prompt-token count (~75% of the 1M window).
@@ -295,6 +296,24 @@ export function useChat() {
       savePanelPrefs({ ...loadPanelPrefs(), sidebarOpen: v });
       return v;
     });
+
+  // User-defined skills the agent can create/delete (persisted; merged with BUILTIN_SKILLS).
+  const [userSkills, setUserSkills] = useState<UserSkill[]>(() => loadUserSkills());
+  const userSkillsRef = useRef(userSkills);
+  userSkillsRef.current = userSkills;
+  const addSkill = (sk: UserSkill) => {
+    const next = [...userSkillsRef.current.filter((s) => s.id !== sk.id), sk];
+    userSkillsRef.current = next;
+    setUserSkills(next);
+    saveUserSkills(next);
+  };
+  const removeSkill = (id: string) => {
+    const next = userSkillsRef.current.filter((s) => s.id !== id);
+    userSkillsRef.current = next;
+    setUserSkills(next);
+    saveUserSkills(next);
+  };
+
   const [zoom, setZoomState] = useState(() => loadPanelPrefs().zoom || 1);
   const clampZoom = (z: number) => Math.min(2, Math.max(0.6, Math.round(z * 100) / 100));
   const setZoom = (z: number) => setZoomState(clampZoom(z));
@@ -949,7 +968,10 @@ export function useChat() {
     };
     const subTools = TOOL_SCHEMAS.filter((s) => {
       const n = (s.function as { name: string }).name;
-      return n !== 'run_subagent' && n !== 'remember' && toolPerm(n, settingsRef.current) !== 'off';
+      return (
+        !['run_subagent', 'remember', 'forget', 'create_skill', 'delete_skill'].includes(n) &&
+        toolPerm(n, settingsRef.current) !== 'off'
+      );
     });
     const msgs: Message[] = [{ id: newId('u'), role: 'user', content: prompt, createdAt: Date.now() }];
     let last = '';
@@ -1228,6 +1250,86 @@ export function useChat() {
               out = 'Error saving memory: ' + (e?.message || String(e));
               isErr = true;
             }
+          } else if (tc.name === 'forget') {
+            // Remove memory entries matching a query (substring, case-insensitive).
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const query = String(a.query ?? a.content ?? '').trim().toLowerCase();
+              const scope = a.scope === 'project' ? 'project' : 'global';
+              if (!query) {
+                out = 'Error: forget requires a query of what to remove.';
+                isErr = true;
+              } else if (scope === 'project') {
+                const file = effCwd ? effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md' : '';
+                let prev = '';
+                try {
+                  if (file && (await fs.exists(file))) prev = await fs.readTextFile(file);
+                } catch {
+                  /* none */
+                }
+                const lines = prev.split('\n');
+                const kept = lines.filter((l) => !(l.trim().startsWith('-') && l.toLowerCase().includes(query)));
+                const removed = lines.length - kept.length;
+                if (removed && file) await fs.writeTextFile(file, kept.join('\n'));
+                out = removed ? `Forgot ${removed} project memory entr${removed === 1 ? 'y' : 'ies'}.` : 'No matching project memory found.';
+              } else {
+                const prev = settingsRef.current.globalMemory || '';
+                const lines = prev.split('\n');
+                const kept = lines.filter((l) => !(l.trim().startsWith('-') && l.toLowerCase().includes(query)));
+                const removed = lines.length - kept.length;
+                if (removed) updateSettings({ globalMemory: kept.join('\n').replace(/\n{3,}/g, '\n\n').trim() });
+                out = removed ? `Forgot ${removed} memor${removed === 1 ? 'y' : 'ies'}.` : 'No matching memory found.';
+              }
+            } catch (e: any) {
+              out = 'Error removing memory: ' + (e?.message || String(e));
+              isErr = true;
+            }
+          } else if (tc.name === 'create_skill') {
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const id = String(a.id ?? '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+              const hint = String(a.hint ?? a.instructions ?? '').trim();
+              if (!id || !hint) {
+                out = 'Error: create_skill needs an id and a hint (the instructions).';
+                isErr = true;
+              } else if (findSkill(id)) {
+                out = `"${id}" is a built-in skill and can't be overwritten — choose another id.`;
+                isErr = true;
+              } else {
+                addSkill({
+                  id,
+                  name: String(a.name ?? id).trim(),
+                  desc: String(a.description ?? a.desc ?? '').trim(),
+                  icon: typeof a.icon === 'string' ? a.icon : undefined,
+                  hint,
+                });
+                out = `Created skill /${id}. Invoke it with "/${id} <topic>".`;
+              }
+            } catch (e: any) {
+              out = 'Error creating skill: ' + (e?.message || String(e));
+              isErr = true;
+            }
+          } else if (tc.name === 'delete_skill') {
+            try {
+              const a = JSON.parse(tc.arguments || '{}');
+              const id = String(a.id ?? '').trim().toLowerCase();
+              if (!id) {
+                out = 'Error: delete_skill requires an id.';
+                isErr = true;
+              } else if (findSkill(id)) {
+                out = `"${id}" is a built-in skill and can't be deleted.`;
+                isErr = true;
+              } else if (!userSkillsRef.current.some((s) => s.id === id)) {
+                out = `No custom skill "${id}" found.`;
+                isErr = true;
+              } else {
+                removeSkill(id);
+                out = `Deleted skill /${id}.`;
+              }
+            } catch (e: any) {
+              out = 'Error deleting skill: ' + (e?.message || String(e));
+              isErr = true;
+            }
           } else if (tc.name.startsWith('mcp__')) {
             const { server, tool } = findMcpServer(turnMcp, tc.name);
             if (!server || !server.ok) {
@@ -1478,8 +1580,8 @@ export function useChat() {
     turn.stopped = false;
     // A leading "/skill-id <topic>" injects that skill's domain knowledge into this turn's
     // system prompt; the visible message is just the topic.
-    const sk = parseSkillCommand(trimmed);
-    turn.skillHint = sk?.skill.hint;
+    const sk = parseSkillCommand(trimmed, userSkillsRef.current);
+    turn.skillHint = sk?.hint;
     const body = sk ? sk.rest : trimmed;
     runningIdsRef.current.add(conv.id);
     bumpNow();
@@ -1568,6 +1670,9 @@ export function useChat() {
     sidebarOpen,
     setSidebarOpen,
     toggleSidebar,
+    userSkills,
+    addSkill,
+    removeSkill,
     goBack,
     goForward,
     canGoBack: navState.back,

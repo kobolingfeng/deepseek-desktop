@@ -24,6 +24,9 @@ export const TOOL_LIST: { name: string; defaultPerm: ToolPerm }[] = [
   { name: 'read_office', defaultPerm: 'allow' },
   { name: 'update_plan', defaultPerm: 'allow' },
   { name: 'remember', defaultPerm: 'allow' },
+  { name: 'forget', defaultPerm: 'allow' },
+  { name: 'create_skill', defaultPerm: 'allow' },
+  { name: 'delete_skill', defaultPerm: 'allow' },
   { name: 'edit_file', defaultPerm: 'allow' },
   { name: 'write_file', defaultPerm: 'allow' },
   { name: 'write_excel', defaultPerm: 'allow' },
@@ -240,6 +243,60 @@ export const TOOL_SCHEMAS = [
           },
         },
         required: ['content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'forget',
+      description:
+        'Remove durable memory the user no longer wants. Pass a short query describing what to drop; every saved entry containing that text is removed. Use it when the user asks to forget/delete a remembered preference or fact.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Text identifying the memory to remove (substring match against saved entries).',
+          },
+          scope: { type: 'string', enum: ['global', 'project'], description: "Which store to remove from. Default 'global'." },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_skill',
+      description:
+        'Define a reusable SKILL the user can invoke as "/<id> <topic>". A skill is a named instruction pack (the `hint`) injected into the system prompt when invoked. Use it when the user asks to add a custom workflow / command / skill.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Short kebab-case id used as the slash command, e.g. "weekly-report".' },
+          name: { type: 'string', description: 'Short display name.' },
+          description: { type: 'string', description: 'One-line description shown in the command menu.' },
+          hint: {
+            type: 'string',
+            description:
+              'The full instructions for this workflow — what to produce and how. Injected into the system prompt when the skill runs.',
+          },
+          icon: { type: 'string', description: 'Optional lucide-react icon name.' },
+        },
+        required: ['id', 'hint'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_skill',
+      description: 'Delete a custom skill the user previously created (by its id). Built-in skills cannot be deleted.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string', description: 'The skill id to delete.' } },
+        required: ['id'],
       },
     },
   },
@@ -889,6 +946,12 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
       return { title: 'Update plan', detail: `${(a.todos || []).length} steps` };
     case 'remember':
       return { title: 'Remember', detail: String(a.content || '') };
+    case 'forget':
+      return { title: 'Forget', detail: String(a.query || '') };
+    case 'create_skill':
+      return { title: 'Create skill', detail: '/' + String(a.id || '') };
+    case 'delete_skill':
+      return { title: 'Delete skill', detail: '/' + String(a.id || '') };
     case 'write_file':
       return { title: 'Write file', detail: a.path || '' };
     case 'run_command':

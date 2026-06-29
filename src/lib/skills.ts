@@ -66,14 +66,49 @@ Structure it as ~10-12 slides, one idea per slide: 1) Title (company + one-line 
   },
 ];
 
+/** A user-defined skill the agent created (plain strings; persisted in localStorage). */
+export interface UserSkill {
+  id: string;
+  name: string;
+  desc: string;
+  icon?: string;
+  hint: string;
+}
+
+const USER_SKILLS_KEY = 'deepseek.userSkills';
+export function loadUserSkills(): UserSkill[] {
+  try {
+    const raw = localStorage.getItem(USER_SKILLS_KEY);
+    const a = raw ? JSON.parse(raw) : [];
+    return Array.isArray(a) ? a.filter((s) => s && typeof s.id === 'string' && typeof s.hint === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+export function saveUserSkills(list: UserSkill[]): void {
+  try {
+    localStorage.setItem(USER_SKILLS_KEY, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+}
+
 export function findSkill(id: string): BuiltinSkill | undefined {
   return BUILTIN_SKILLS.find((s) => s.id === id);
 }
 
-/** Parse a leading "/skill-id rest" command. Returns the skill + remaining text, or null. */
-export function parseSkillCommand(text: string): { skill: BuiltinSkill; rest: string } | null {
+/** The hint for a skill id — built-ins first, then the user's custom skills. */
+export function skillHintById(id: string, userSkills: UserSkill[] = []): string | undefined {
+  return findSkill(id)?.hint ?? userSkills.find((s) => s.id === id)?.hint;
+}
+
+/** Parse a leading "/skill-id rest" command. Returns the skill id + its hint + remaining text. */
+export function parseSkillCommand(
+  text: string,
+  userSkills: UserSkill[] = [],
+): { id: string; hint: string; rest: string } | null {
   const m = /^\/([a-z0-9-]+)\s+([\s\S]+)$/.exec(text.trim());
   if (!m) return null;
-  const skill = findSkill(m[1]);
-  return skill ? { skill, rest: m[2].trim() } : null;
+  const hint = skillHintById(m[1], userSkills);
+  return hint ? { id: m[1], hint, rest: m[2].trim() } : null;
 }
