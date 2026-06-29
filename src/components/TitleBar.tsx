@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { PanelLeft } from 'lucide-react';
+import { ArrowLeft, ArrowRight, PanelLeft } from 'lucide-react';
 import { win } from '../api';
 import { useI18n } from '../lib/i18n';
 import type { ChatController } from '../lib/useChat';
@@ -28,6 +28,24 @@ export function TitleBar({ controller }: { controller: ChatController }) {
           aria-label={t('toggleSidebar')}
         >
           <PanelLeft size={17} strokeWidth={1.9} />
+        </button>
+        <button
+          className="titlebar-toggle"
+          onClick={controller.goBack}
+          disabled={!controller.canGoBack}
+          title={t('navBack')}
+          aria-label={t('navBack')}
+        >
+          <ArrowLeft size={17} strokeWidth={1.9} />
+        </button>
+        <button
+          className="titlebar-toggle"
+          onClick={controller.goForward}
+          disabled={!controller.canGoForward}
+          title={t('navForward')}
+          aria-label={t('navForward')}
+        >
+          <ArrowRight size={17} strokeWidth={1.9} />
         </button>
       </div>
 

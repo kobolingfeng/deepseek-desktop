@@ -19,12 +19,34 @@ export function TerminalPanel({ cwd }: { cwd?: string }) {
       fontFamily: 'Consolas, "Cascadia Mono", "JetBrains Mono", monospace',
       fontSize: 13,
       cursorBlink: true,
+      cursorStyle: 'bar', // thin I-beam, not a fat block
+      cursorWidth: 2,
       scrollback: 5000,
       theme: {
-        background: v('--bg-sidebar', '#1b1b1d'),
-        foreground: v('--text-primary', '#e6e6e6'),
-        cursor: v('--accent', '#7aa2f7'),
-        selectionBackground: v('--accent-soft', 'rgba(122,162,247,0.3)'),
+        // Terminals are conventionally dark; PowerShell/PSReadLine assume a dark console and emit
+        // light-coloured input, which was INVISIBLE on the light app theme. Use a fixed dark
+        // palette (VS Code's) so typed input + tool colours always show, regardless of app theme.
+        background: '#1e1e1e',
+        foreground: '#d4d4d4',
+        cursor: v('--accent', '#5b74f3'),
+        cursorAccent: '#1e1e1e',
+        selectionBackground: 'rgba(255,255,255,0.22)',
+        black: '#1e1e1e',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#d4d4d4',
+        brightBlack: '#808080',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#ffffff',
       },
     });
     const fit = new FitAddon();

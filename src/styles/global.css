@@ -175,6 +175,11 @@ textarea {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
+.titlebar-toggle:disabled {
+  opacity: 0.32;
+  cursor: default;
+  background: transparent;
+}
 .titlebar-center {
   flex: 1;
   display: flex;

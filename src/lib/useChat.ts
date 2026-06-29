@@ -329,6 +329,38 @@ export function useChat() {
   };
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
+
+  // Back/forward navigation through visited conversations (like browser history). Any normal
+  // activeId change pushes onto the stack (truncating the forward tail); goBack/goForward replay
+  // without re-pushing (navigatingRef guards the effect).
+  const navStackRef = useRef<string[]>([]);
+  const navIdxRef = useRef(-1);
+  const navigatingRef = useRef(false);
+  const [navState, setNavState] = useState({ back: false, fwd: false });
+  useEffect(() => {
+    if (!activeId) return;
+    if (navigatingRef.current) {
+      navigatingRef.current = false;
+    } else if (navStackRef.current[navIdxRef.current] !== activeId) {
+      navStackRef.current = navStackRef.current.slice(0, navIdxRef.current + 1);
+      navStackRef.current.push(activeId);
+      navIdxRef.current = navStackRef.current.length - 1;
+    }
+    setNavState({ back: navIdxRef.current > 0, fwd: navIdxRef.current < navStackRef.current.length - 1 });
+  }, [activeId]);
+  const goBack = () => {
+    if (navIdxRef.current <= 0) return;
+    navIdxRef.current -= 1;
+    navigatingRef.current = true;
+    setActiveId(navStackRef.current[navIdxRef.current]);
+  };
+  const goForward = () => {
+    if (navIdxRef.current >= navStackRef.current.length - 1) return;
+    navIdxRef.current += 1;
+    navigatingRef.current = true;
+    setActiveId(navStackRef.current[navIdxRef.current]);
+  };
+
   const runningIdsRef = useRef<Set<string>>(new Set()); // conversations currently generating
   const unreadIdsRef = useRef<Set<string>>(new Set()); // finished while not active → unread
   const settingsRef = useRef(settings);
@@ -1475,6 +1507,10 @@ export function useChat() {
     sidebarOpen,
     setSidebarOpen,
     toggleSidebar,
+    goBack,
+    goForward,
+    canGoBack: navState.back,
+    canGoForward: navState.fwd,
     setZoom,
     zoomBy,
     setPreviewUrl,

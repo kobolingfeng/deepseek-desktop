@@ -229,6 +229,7 @@
   flex-shrink: 0;
   overflow: hidden;
   width: 0;
+  display: flex; /* so the inner .sidebar stretches to full height (no gap at the bottom) */
   transition: width var(--dur-2) var(--ease-out);
 }
 .sidebar-wrap.open {
