@@ -160,7 +160,9 @@ export function App() {
                 />
               </div>
               <div className="maincol">
-                <ChatHeader controller={controller} />
+                {/* The content header only matters once a conversation has actually started —
+                    an empty "New chat" (no messages yet) shows just the welcome screen. */}
+                {!!controller.activeConversation?.messages.length && <ChatHeader controller={controller} />}
                 <div className="panes">
                   <main className="main">
                     <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
