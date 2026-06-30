@@ -247,6 +247,16 @@ static HWND                              g_hwnd;
 static ComPtr<ICoreWebView2Environment>  g_env;
 static ComPtr<ICoreWebView2Controller>   g_ctrl;
 static ComPtr<ICoreWebView2>             g_view;
+// Isolated web-preview WebView2: a SEPARATE controller with NO IPC bridge (no add_WebMessageReceived),
+// overlaid on the preview panel. Untrusted preview pages render here and have no path to the native
+// bridge — not their own (no handler) and not the app's (a different WebView2 instance / JS context).
+static ComPtr<ICoreWebView2Controller>   g_previewCtrl;
+static ComPtr<ICoreWebView2>             g_previewView;
+static bool                              g_previewCreating = false; // controller creation in flight
+static std::wstring                      g_previewPendingUrl;       // latest requested url/bounds/visibility,
+static RECT                              g_previewPendingBounds{};  // applied when the async creation completes
+static bool                              g_previewPendingVisible = false;
+static std::wstring                      g_previewLoadedUrl;        // currently-navigated url (skip redundant reloads)
 static std::wstring                      g_devUrl;
 static bool                              g_webviewReady = false;
 
@@ -1240,6 +1250,77 @@ static void reg_shell_app() {
     });
     ipc_on("window.isFrameless", [](const json&) -> json {
         return g_frameless;
+    });
+
+    // ── Isolated web preview overlay (separate bridge-less WebView2; see g_previewCtrl) ──
+    // The renderer passes a PHYSICAL-pixel rect (CSS rect * devicePixelRatio) relative to the client
+    // area, matching the main controller's raw-pixel bounds. All these handlers AND the controller
+    // creation callback run on the UI thread, so the pending-state below needs no lock. The
+    // creating-flag prevents a second show (e.g. rapid URL change) from spawning a 2nd controller
+    // and leaking the first.
+    ipc_on("preview.setBounds", [](const json& a) -> json {
+        int x = a.value("x", 0), y = a.value("y", 0), w = a.value("w", 0), h = a.value("h", 0);
+        RECT r{ x, y, x + w, y + h };
+        g_previewPendingBounds = r;
+        if (g_previewCtrl) g_previewCtrl->put_Bounds(r);
+        return true;
+    });
+    ipc_on("preview.hide", [](const json&) -> json {
+        g_previewPendingVisible = false;
+        if (g_previewCtrl) g_previewCtrl->put_IsVisible(FALSE);
+        return true;
+    });
+    ipc_on("preview.show", [](const json& a) -> json {
+        auto url = a.value("url", std::string{});
+        // Case-insensitive scheme check (the renderer accepts HTTP://… too).
+        if (_strnicmp(url.c_str(), "http://", 7) != 0 && _strnicmp(url.c_str(), "https://", 8) != 0) return false;
+        int x = a.value("x", 0), y = a.value("y", 0), w = a.value("w", 0), h = a.value("h", 0);
+        RECT b{ x, y, x + w, y + h };
+        auto wurl = U2W(url);
+        g_previewPendingBounds = b;
+        g_previewPendingUrl = wurl;
+        g_previewPendingVisible = true;
+        if (g_previewCtrl) { // reuse the existing controller
+            g_previewCtrl->put_Bounds(b);
+            // Only navigate when the URL actually changed — re-showing after a cover/uncover must
+            // not reload the page.
+            if (g_previewView && wurl != g_previewLoadedUrl) { g_previewView->Navigate(wurl.c_str()); g_previewLoadedUrl = wurl; }
+            g_previewCtrl->put_IsVisible(TRUE);
+            return true;
+        }
+        if (g_previewCreating) return true; // creation already in flight — callback applies the latest pending
+        if (!g_env || !g_hwnd) return false;
+        g_previewCreating = true;
+        HRESULT cr = g_env->CreateCoreWebView2Controller(g_hwnd,
+            Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+            [](HRESULT hr, ICoreWebView2Controller* ctrl) -> HRESULT {
+                g_previewCreating = false;
+                if (FAILED(hr) || !ctrl) return hr;
+                g_previewCtrl = ctrl;
+                ctrl->get_CoreWebView2(&g_previewView);
+                ComPtr<ICoreWebView2Controller3> c3;
+                if (SUCCEEDED(ctrl->QueryInterface(IID_PPV_ARGS(&c3))))
+                    c3->put_BoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
+                ctrl->put_Bounds(g_previewPendingBounds);
+                if (g_previewView) {
+                    ComPtr<ICoreWebView2Settings> st;
+                    if (SUCCEEDED(g_previewView->get_Settings(&st))) st->put_AreDevToolsEnabled(FALSE);
+                    // Deny popups (window.open / target=_blank) — a preview is view-only.
+                    EventRegistrationToken tok;
+                    g_previewView->add_NewWindowRequested(
+                        Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                        [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+                            args->put_Handled(TRUE);
+                            return S_OK;
+                        }).Get(), &tok);
+                    // INTENTIONALLY no add_WebMessageReceived here → this WebView has no IPC bridge.
+                    if (!g_previewPendingUrl.empty()) { g_previewView->Navigate(g_previewPendingUrl.c_str()); g_previewLoadedUrl = g_previewPendingUrl; }
+                }
+                ctrl->put_IsVisible(g_previewPendingVisible ? TRUE : FALSE); // a hide() during creation wins
+                return S_OK;
+            }).Get());
+        if (FAILED(cr)) g_previewCreating = false; // synchronous failure: don't wedge the guard forever
+        return true;
     });
 }
 
@@ -3928,6 +4009,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int ns) {
 
     if (hMutex) CloseHandle(hMutex);
     // Release WebView2 COM objects on this (owning) apartment BEFORE CoUninitialize.
+    if (g_previewCtrl) g_previewCtrl->Close();
+    g_previewView.Reset();
+    g_previewCtrl.Reset();
     if (g_ctrl) g_ctrl->Close();
     g_view.Reset();
     g_ctrl.Reset();

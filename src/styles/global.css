@@ -68,6 +68,11 @@ textarea {
 .resize-zone {
   position: absolute;
   pointer-events: auto;
+  /* Carve a hole in the title bar's drag region: WebView2 computes draggable areas from element
+     rects (ignoring DOM z-index), so without this the top/corner resize strips overlapping the
+     title bar are treated as caption-drag and the edge resize only triggers BELOW the title bar. */
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 .resize-top,
 .resize-bottom {

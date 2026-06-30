@@ -167,7 +167,8 @@ export function App() {
                   <main className="main">
                     <ChatView controller={controller} onOpenSettings={() => setSettingsOpen(true)} />
                   </main>
-                  <PreviewPanel controller={controller} />
+                  {/* Suspend the native preview overlay while a modal is open so it doesn't paint over it. */}
+                  <PreviewPanel controller={controller} suspended={paletteOpen || shortcutsOpen} />
                 </div>
               </div>
             </>

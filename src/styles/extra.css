@@ -476,6 +476,11 @@ body.sb-resizing .sidebar-wrap {
   border: 0;
   background: #fff;
 }
+/* Placeholder the native (bridge-less) web-preview WebView2 is overlaid onto; it just reserves the
+   space + provides a backdrop until the overlay paints. min-height:0 so flex can size it. */
+.preview-native-host {
+  min-height: 0;
+}
 
 /* Tasks tab */
 .tasks {

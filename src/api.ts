@@ -89,6 +89,15 @@ export const win = {
     onChildClosed: (h: (data: { id: number }) => void) => on('window.childClosed', h),
 };
 
+// ── Isolated web preview (separate bridge-less WebView2 overlay) ──
+// Rects are PHYSICAL pixels relative to the client area (CSS rect * devicePixelRatio).
+export interface PreviewRect { x: number; y: number; w: number; h: number }
+export const webpreview = {
+    show:      (url: string, r: PreviewRect) => invoke<boolean>('preview.show', { url, ...r }),
+    setBounds: (r: PreviewRect) => invoke<boolean>('preview.setBounds', r),
+    hide:      () => invoke<boolean>('preview.hide'),
+};
+
 // ── Dialogs ───────────────────────────────────
 
 export const dialog = {

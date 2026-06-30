@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw, Undo2 } from 'lucide-react';
-import { fs, shell } from '../api';
+import { fs, shell, webpreview } from '../api';
+import { isNativeRuntime } from '../ipc';
 import { extractChanges } from '../lib/diff';
 import { openPathSafely } from '../lib/safeOpen';
 import { useI18n } from '../lib/i18n';
@@ -13,7 +14,7 @@ import type { Conversation } from '../lib/types';
 
 const TABS = ['changes', 'preview', 'tasks', 'terminal'] as const;
 
-export function PreviewPanel({ controller }: { controller: ChatController }) {
+export function PreviewPanel({ controller, suspended }: { controller: ChatController; suspended?: boolean }) {
   const { t } = useI18n();
   const tab = controller.panelTab;
   // While dragging the resize handle we kill the width transition so it tracks the cursor.
@@ -81,7 +82,7 @@ export function PreviewPanel({ controller }: { controller: ChatController }) {
         </div>
         <div className="side-body">
           {tab === 'changes' && <ChangesTab controller={controller} />}
-          {tab === 'preview' && <PreviewTab controller={controller} />}
+          {tab === 'preview' && <PreviewTab controller={controller} suspended={suspended} />}
           {tab === 'tasks' && <TasksTab controller={controller} />}
           {termMounted && (
             <div className="term-wrap" hidden={tab !== 'terminal'}>
@@ -180,10 +181,11 @@ function ChangesTab({ controller }: { controller: ChatController }) {
   );
 }
 
-function PreviewTab({ controller }: { controller: ChatController }) {
+function PreviewTab({ controller, suspended }: { controller: ChatController; suspended?: boolean }) {
   const { t } = useI18n();
   const [url, setUrl] = useState(controller.previewUrl);
   const [src, setSrc] = useState(controller.previewUrl);
+  const hostRef = useRef<HTMLDivElement>(null);
   const [docHtml, setDocHtml] = useState<string | null>(null); // office/image/text → wrapped iframe
   const [rawHtml, setRawHtml] = useState<string | null>(null); // .html file → rendered as a page
   const [mdText, setMdText] = useState<string | null>(null); // .md → React Markdown
@@ -230,6 +232,51 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     };
     // previewNonce: re-render when the agent rewrites the same file this turn (live refresh).
   }, [kind, src, controller.previewNonce]);
+
+  // Web pages render in a SEPARATE, bridge-less WebView2 (g_previewCtrl) overlaid on the host div —
+  // untrusted page scripts can't reach the app's IPC bridge. We keep the native overlay aligned to
+  // the host's screen rect every frame (cheap: getBoundingClientRect is cached when layout is clean),
+  // and hide it whenever the panel is collapsed, this tab is hidden, or a modal is open (suspended) —
+  // otherwise the native layer would paint OVER that HTML. Browser-preview/dev falls back to an iframe.
+  const showNative = isNativeRuntime && kind === 'web' && !!src && isPrivateUrl(src) && controller.panelOpen && !suspended;
+  useEffect(() => {
+    if (!showNative) {
+      webpreview.hide().catch(() => {});
+      return;
+    }
+    let raf = 0;
+    let last = '';
+    let visible = false;
+    const tick = () => {
+      const host = hostRef.current;
+      if (host) {
+        const b = host.getBoundingClientRect();
+        // A native WebView2 controller always paints ABOVE HTML regardless of z-index, so yield it
+        // whenever the host is zero-size or COVERED by any HTML overlay (modal/scrim/dialog/dropdown).
+        // elementFromPoint auto-detects every such overlay — no need to wire each modal in.
+        let covered = b.width <= 0 || b.height <= 0;
+        if (!covered) {
+          const el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          covered = !el || (el !== host && !host.contains(el));
+        }
+        if (covered) {
+          if (visible) { visible = false; webpreview.hide().catch(() => {}); }
+        } else {
+          const dpr = window.devicePixelRatio || 1;
+          const r = { x: Math.round(b.left * dpr), y: Math.round(b.top * dpr), w: Math.round(b.width * dpr), h: Math.round(b.height * dpr) };
+          const sig = `${r.x},${r.y},${r.w},${r.h}`;
+          if (!visible) { visible = true; last = sig; webpreview.show(src, r).catch(() => {}); } // native skips reload if url unchanged
+          else if (sig !== last) { last = sig; webpreview.setBounds(r).catch(() => {}); }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      webpreview.hide().catch(() => {});
+    };
+  }, [showNative, src]);
 
   const go = () => {
     let u = url.trim();
@@ -335,14 +382,19 @@ function PreviewTab({ controller }: { controller: ChatController }) {
           <iframe className="preview-frame" srcDoc={wrappedDoc} title="file preview" sandbox="" />
         )
       ) : isPrivateUrl(src) ? (
-        // Only preview local servers in-app: web-security is disabled, so a remote
-        // page in this iframe could reach the native IPC bridge. Sandbox as defense.
-        <iframe
-          className="preview-frame"
-          src={src}
-          title="preview"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-        />
+        isNativeRuntime ? (
+          // Native app: the page renders in a SEPARATE bridge-less WebView2 overlaid on this host
+          // div (see the showNative effect) — untrusted scripts can't reach the app's IPC bridge.
+          <div ref={hostRef} className="preview-frame preview-native-host" />
+        ) : (
+          // Browser/dev fallback (no native overlay available): sandboxed iframe.
+          <iframe
+            className="preview-frame"
+            src={src}
+            title="preview"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
+          />
+        )
       ) : (
         <div className="side-empty">
           {t('panelRemoteWarn')}
