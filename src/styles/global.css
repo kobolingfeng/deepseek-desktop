@@ -58,27 +58,25 @@ textarea {
   height: 100%;
   background: var(--bg-app);
 }
-/* Frameless-window resize handles (thin edges + corners overlaying the window border). */
+/* Frameless-window resize handles. The WebView fills the whole window (no gap), so these thin edge +
+   corner zones overlay the window border and start a native resize-drag (window.startResize). They
+   sit ABOVE the window buttons (z-index) so the top corners next to min/max/close stay grabbable.
+   No app-region needed — CSS app-region (NCR) is disabled natively. */
 .resize-layer {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 200;
   pointer-events: none;
 }
 .resize-zone {
   position: absolute;
   pointer-events: auto;
-  /* Carve a hole in the title bar's drag region: WebView2 computes draggable areas from element
-     rects (ignoring DOM z-index), so without this the top/corner resize strips overlapping the
-     title bar are treated as caption-drag and the edge resize only triggers BELOW the title bar. */
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
 }
 .resize-top,
 .resize-bottom {
-  left: 10px;
-  right: 10px;
-  height: 5px;
+  left: 14px;
+  right: 14px;
+  height: 6px;
 }
 .resize-top {
   top: 0;
@@ -90,9 +88,9 @@ textarea {
 }
 .resize-left,
 .resize-right {
-  top: 10px;
-  bottom: 10px;
-  width: 5px;
+  top: 14px;
+  bottom: 14px;
+  width: 6px;
 }
 .resize-left {
   left: 0;
@@ -106,8 +104,8 @@ textarea {
 .resize-top-right,
 .resize-bottom-left,
 .resize-bottom-right {
-  width: 11px;
-  height: 11px;
+  width: 14px;
+  height: 14px;
 }
 .resize-top-left {
   top: 0;
@@ -193,10 +191,9 @@ textarea {
 .titlebar-right {
   display: flex;
   gap: 2px;
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-  /* Above the resize layer (z-index 100) so the min/max/close buttons stay clickable
-     where the top-right resize corner would otherwise cover them. */
+  /* The resize overlay (z-index 200) sits intentionally above these buttons so the very top edge +
+     top-right corner stay grabbable for resize; the zones are thin (6px edge / 14px corner) so the
+     button bodies remain clickable. position/z-index keep the buttons above other title-bar content. */
   position: relative;
   z-index: 101;
 }

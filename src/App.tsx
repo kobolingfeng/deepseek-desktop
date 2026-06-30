@@ -12,8 +12,10 @@ import { useChat } from './lib/useChat';
 import { I18nProvider, detectLang } from './lib/i18n';
 import { os, win, tray, type ResizeEdge } from './api';
 
-// Frameless-window resize handles: the WebView covers the native resize border, so we
-// overlay thin edge/corner zones that ask the shell to start a native resize-drag.
+// Frameless resize: the WebView fills the whole window (no gap) and its render child is cross-process,
+// so the host's WM_NCHITTEST can't see the edges. Instead we overlay thin edge/corner zones in web
+// content that start a native resize-drag (window.startResize → WM_NCLBUTTONDOWN). The zones sit
+// above the window buttons (z-index) so the top corners next to the buttons stay grabbable.
 const RESIZE_EDGES: ResizeEdge[] = ['top', 'right', 'bottom', 'left', 'top-left', 'top-right', 'bottom-left', 'bottom-right'];
 function ResizeLayer() {
   return (
@@ -25,6 +27,7 @@ function ResizeLayer() {
           onPointerDown={(e) => {
             if (e.button !== 0) return;
             e.preventDefault();
+            e.stopPropagation();
             win.startResize(edge).catch(() => {});
           }}
         />

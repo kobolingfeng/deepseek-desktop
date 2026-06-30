@@ -18,8 +18,22 @@ export function TitleBar({ controller }: { controller: ChatController }) {
     };
   }, []);
 
+  // Title-bar drag is JS-driven (app-region is off, see native NCR note): a left-press on empty
+  // title-bar area starts a native window move; double-click toggles maximize. Presses on buttons are
+  // ignored so they keep working. The resize overlay sits above this (z-index) for the edges/corners.
+  const dragGuard = (e: { target: EventTarget | null }) =>
+    !!(e.target as HTMLElement)?.closest?.('button, input, a, [data-no-drag]');
+  const onDragDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 || dragGuard(e)) return;
+    win.startDrag().catch(() => {});
+  };
+  const onTitleDouble = (e: React.MouseEvent) => {
+    if (dragGuard(e)) return;
+    (maximized ? win.restore() : win.maximize()).catch(() => {});
+  };
+
   return (
-    <div className="titlebar">
+    <div className="titlebar" onPointerDown={onDragDown} onDoubleClick={onTitleDouble}>
       <div className="titlebar-left">
         <button
           className="titlebar-toggle"

@@ -1220,8 +1220,13 @@ static void reg_shell_app() {
 #endif
     });
     ipc_on("window.startDrag", [](const json&) -> json {
+        // PostMessage (NOT SendMessage): this IPC handler runs synchronously inside WebView2's
+        // WebMessageReceived callback. SendMessage would enter the modal move loop right there,
+        // blocking WebView2's message pump so it can't composite during the drag — which briefly
+        // exposes the bare window frame (a black outline) until it catches up. Posting defers the
+        // move loop to the normal message loop, matching window.startResize.
         ReleaseCapture();
-        SendMessageW(g_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+        PostMessageW(g_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
         return true;
     });
     // Start a native resize drag. Frontend detects mouse near window edge and
@@ -3406,6 +3411,10 @@ static void setupWebView(ICoreWebView2Controller* ctrl) {
     g_ctrl = ctrl;
     g_ctrl->get_CoreWebView2(&g_view);
 
+    // The WebView fills the entire client (no gap), so the content reaches every edge. Frameless
+    // edge/corner resize and title-bar drag are driven from web content via window.startResize /
+    // window.startDrag (→ native WM_NCLBUTTONDOWN), since the cross-process render child means the
+    // host's own WM_NCHITTEST is never consulted over the WebView.
     RECT b; GetClientRect(g_hwnd, &b);
     g_ctrl->put_Bounds(b);
 
@@ -3452,10 +3461,13 @@ static void setupWebView(ICoreWebView2Controller* ctrl) {
     if (SUCCEEDED(s.As(&s5)))
         s5->put_IsPinchZoomEnabled(FALSE);
 
-    // Enable CSS app-region:drag for declarative title bar drag
+    // Keep CSS app-region OFF: when enabled, WebView2 spawns in-process non-client child windows over
+    // the title-bar drag region that swallow the thin top resize strip (and mis-map under CSS `zoom`),
+    // so the top edge/corners can't be grabbed. Title-bar drag is handled in JS instead (pointerdown →
+    // window.startDrag), which composes cleanly with the JS edge-resize overlay.
     ComPtr<ICoreWebView2Settings9> s9;
     if (SUCCEEDED(s.As(&s9)))
-        s9->put_IsNonClientRegionSupportEnabled(TRUE);
+        s9->put_IsNonClientRegionSupportEnabled(FALSE);
 
     // WebView permissions are denied by default. Apps that embed trusted pages
     // can opt into auto-allow with window.allowWebviewPermissions.
@@ -3749,34 +3761,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
 
-    case WM_NCHITTEST:
-        if (g_frameless && !IsZoomed(h)) {
-            POINT pt{ GET_X_LPARAM(l), GET_Y_LPARAM(l) };
-            RECT rc;
-            GetWindowRect(h, &rc);
-
-            UINT dpi = GetDpiForWindow(h);
-            int frameX = GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            int frameY = GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-            int minFrame = MulDiv(6, dpi, 96);
-            if (frameX < minFrame) frameX = minFrame;
-            if (frameY < minFrame) frameY = minFrame;
-
-            bool left = pt.x >= rc.left && pt.x < rc.left + frameX;
-            bool right = pt.x < rc.right && pt.x >= rc.right - frameX;
-            bool top = pt.y >= rc.top && pt.y < rc.top + frameY;
-            bool bottom = pt.y < rc.bottom && pt.y >= rc.bottom - frameY;
-
-            if (top && left) return HTTOPLEFT;
-            if (top && right) return HTTOPRIGHT;
-            if (bottom && left) return HTBOTTOMLEFT;
-            if (bottom && right) return HTBOTTOMRIGHT;
-            if (top) return HTTOP;
-            if (bottom) return HTBOTTOM;
-            if (left) return HTLEFT;
-            if (right) return HTRIGHT;
-        }
-        break;
+        // NB: no custom WM_NCHITTEST for resize — the WebView (cross-process render child) covers the
+        // whole client, so the host is never consulted there. Edge resize is initiated from web
+        // content via window.startResize (→ WM_NCLBUTTONDOWN below).
 
     case WM_TRAYICON:
         switch (LOWORD(l)) {
@@ -3825,6 +3812,9 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 GetMonitorInfoW(mon, &mi);
                 p->rgrc[0] = mi.rcWork;
             }
+            // Otherwise return 0 with the client = whole window: NO non-client frame, so Windows draws
+            // no resize-border edge ("描边"). Native edge resize is instead achieved by insetting the
+            // WebView (webviewBounds) so the window's own uncovered edge ring still gets WM_NCHITTEST.
             return 0;
         }
         break;
