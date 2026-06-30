@@ -57,8 +57,12 @@ async function readExcel(p: string): Promise<string> {
   const wb = XLSX.read(b64, { type: 'base64', sheetRows: 5000 }); // cap rows: bound SheetJS expansion on a zip-bomb xlsx
   const parts: string[] = [];
   for (const name of wb.SheetNames) {
-    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).trim();
-    parts.push(`# Sheet: ${name}\n${csv || '(empty)'}`);
+    const ws = wb.Sheets[name];
+    const csv = XLSX.utils.sheet_to_csv(ws, { blankrows: false }).trim();
+    // SheetJS sets !fullref (the original range) only when sheetRows actually truncated the read —
+    // surface that so the model/user isn't silently shown a partial sheet as if it were complete.
+    const truncated = !!(ws as any)['!fullref'];
+    parts.push(`# Sheet: ${name}\n${csv || '(empty)'}${truncated ? '\n… [truncated to first 5000 rows]' : ''}`);
   }
   return parts.join('\n\n') || '(empty workbook)';
 }

@@ -37,8 +37,11 @@ async function readCappedBody(resp: Response, cap: number): Promise<string> {
       if (value.byteLength > room) { parts.push(value.subarray(0, room)); total = cap; } // strict cap
       else { parts.push(value); total += value.byteLength; }
     }
+  } finally {
+    // Cap = normal stop; a mid-read error must PROPAGATE so a partial JSON-RPC body isn't parsed as
+    // a valid response.
     try { await reader.cancel(); } catch { /* ignore */ }
-  } catch { /* network error mid-read: return what we have */ }
+  }
   const buf = new Uint8Array(total);
   let off = 0;
   for (const p of parts) { buf.set(p, off); off += p.byteLength; }
@@ -60,10 +63,12 @@ async function rpc(
   const reqId = nextId++;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
-  // Let an external signal (turn Stop / conversation delete) abort this request too.
+  // Let an external signal (turn Stop / conversation delete) abort this request too. Use a NAMED
+  // handler removed in finally so a long turn with many MCP calls doesn't accumulate listeners.
+  const onAbort = () => ctrl.abort();
   if (signal) {
     if (signal.aborted) ctrl.abort();
-    else signal.addEventListener('abort', () => ctrl.abort(), { once: true });
+    else signal.addEventListener('abort', onAbort, { once: true });
   }
   try {
     const resp = await fetch(url, {
@@ -102,6 +107,7 @@ async function rpc(
     return { result: json.result, error: json.error, sessionId: newSession };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 

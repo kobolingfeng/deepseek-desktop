@@ -247,17 +247,29 @@ function PreviewTab({ controller, suspended }: { controller: ChatController; sus
     let raf = 0;
     let last = '';
     let visible = false;
+    let everShown = false; // first show of THIS effect = a fresh src / reload → force navigate
     const tick = () => {
       const host = hostRef.current;
       if (host) {
         const b = host.getBoundingClientRect();
         // A native WebView2 controller always paints ABOVE HTML regardless of z-index, so yield it
         // whenever the host is zero-size or COVERED by any HTML overlay (modal/scrim/dialog/dropdown).
-        // elementFromPoint auto-detects every such overlay — no need to wire each modal in.
+        // Sample center + the four inset corners (not just center) so a floating menu over ANY part of
+        // the preview — e.g. the header ⋯ menu near the top — is detected.
         let covered = b.width <= 0 || b.height <= 0;
         if (!covered) {
-          const el = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-          covered = !el || (el !== host && !host.contains(el));
+          const ins = 6;
+          const pts: Array<[number, number]> = [
+            [b.left + b.width / 2, b.top + b.height / 2],
+            [b.left + ins, b.top + ins],
+            [b.right - ins, b.top + ins],
+            [b.left + ins, b.bottom - ins],
+            [b.right - ins, b.bottom - ins],
+          ];
+          for (const [px, py] of pts) {
+            const el = document.elementFromPoint(px, py);
+            if (!el || (el !== host && !host.contains(el))) { covered = true; break; }
+          }
         }
         if (covered) {
           if (visible) { visible = false; webpreview.hide().catch(() => {}); }
@@ -265,8 +277,11 @@ function PreviewTab({ controller, suspended }: { controller: ChatController; sus
           const dpr = window.devicePixelRatio || 1;
           const r = { x: Math.round(b.left * dpr), y: Math.round(b.top * dpr), w: Math.round(b.width * dpr), h: Math.round(b.height * dpr) };
           const sig = `${r.x},${r.y},${r.w},${r.h}`;
-          if (!visible) { visible = true; last = sig; webpreview.show(src, r).catch(() => {}); } // native skips reload if url unchanged
-          else if (sig !== last) { last = sig; webpreview.setBounds(r).catch(() => {}); }
+          if (!visible) {
+            visible = true; last = sig;
+            webpreview.show(src, r, !everShown).catch(() => {}); // force nav on first show; re-show after cover doesn't reload
+            everShown = true;
+          } else if (sig !== last) { last = sig; webpreview.setBounds(r).catch(() => {}); }
         }
       }
       raf = requestAnimationFrame(tick);

@@ -844,7 +844,7 @@ export function useChat() {
         messages: [
           { id: newId('c'), role: 'user', content: COMPACT_PROMPT + '\n\n---\n' + renderTranscript(older), createdAt: Date.now() },
         ],
-        model: models.find(modelSupportsTools) ?? settingsRef.current.model,
+        model: models.find(modelSupportsTools) ?? cfg.model, // use the turn snapshot, not live settings
         settings: cfg,
       },
       {},
@@ -1025,9 +1025,14 @@ export function useChat() {
               if (EDIT_FILE_TOOLS.has(sub.name)) {
                 out = await withFileLock(async () => {
                   if (signal.aborted) throw new Error('sub-agent cancelled');
-                  await snapshotEdit(checkpoint, sub, effCwd);
-                  if (signal.aborted) throw new Error('sub-agent cancelled'); // abort during snapshot
-                  return executeTool(sub, subCfg, { cancelId: cid, signal });
+                  // Capture pre-edit state, then commit to the checkpoint ONLY after the write
+                  // succeeds (mirrors the main loop) — a stopped/failed sub-agent edit must not leave
+                  // a phantom undo entry whose revert could delete an unrelated file.
+                  const snap = await captureEdit(sub, effCwd, checkpoint.files);
+                  if (signal.aborted) throw new Error('sub-agent cancelled');
+                  const res = await executeTool(sub, subCfg, { cancelId: cid, signal });
+                  if (snap) checkpoint.files.set(snap.path, snap);
+                  return res;
                 });
               } else {
                 out = await executeTool(sub, subCfg, { cancelId: cid, signal });
@@ -1413,8 +1418,10 @@ export function useChat() {
             // Connecting an external MCP exposes its tools to the agent → gate behind approval.
             try {
               const a = JSON.parse(tc.arguments || '{}');
-              const name = String(a.name ?? '').trim().replace(/[^a-zA-Z0-9-]/g, '');
-              const url = String(a.url ?? '').trim();
+              // Length-cap at runtime (not only on reload): the name is embedded in OpenAI function
+              // names + recomputed into mcpKey, and is shown in the approval prompt.
+              const name = String(a.name ?? '').trim().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64);
+              const url = String(a.url ?? '').trim().slice(0, 2048);
               if (!name || !url) {
                 out = 'Error: add_mcp_server needs a name and an http(s) url.';
                 isErr = true;

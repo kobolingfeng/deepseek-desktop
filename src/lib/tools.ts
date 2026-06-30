@@ -868,8 +868,11 @@ async function cappedText(r: Response, cap = 8 << 20): Promise<string> {
       if (value.byteLength > room) { parts.push(value.subarray(0, room)); total = cap; } // strict cap
       else { parts.push(value); total += value.byteLength; }
     }
+  } finally {
+    // Hitting the cap is a normal stop; a mid-read network error must PROPAGATE (don't return a
+    // partial body as if it were the complete response) — the caller retries / reports it.
     try { await reader.cancel(); } catch { /* ignore */ }
-  } catch { /* network error mid-read: return what we have */ }
+  }
   const buf = new Uint8Array(total);
   let off = 0;
   for (const p of parts) { buf.set(p, off); off += p.byteLength; }

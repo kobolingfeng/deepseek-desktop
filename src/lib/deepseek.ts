@@ -194,11 +194,12 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         if (!Number.isInteger(idx) || idx < 0 || idx >= 256) continue; // bound slots: no sparse-array DoS
         let slot = toolCalls[idx];
         if (!slot) {
-          slot = { id: tcd.id || '', name: '', arguments: '' };
+          slot = { id: typeof tcd.id === 'string' ? tcd.id : '', name: '', arguments: '' };
           toolCalls[idx] = slot;
         }
-        if (tcd.id) slot.id = tcd.id;
-        if (tcd.function?.name) slot.name = tcd.function.name;
+        // Only accept string id/name — a JSON-valid but malformed delta could send a number/object.
+        if (typeof tcd.id === 'string' && tcd.id) slot.id = tcd.id;
+        if (typeof tcd.function?.name === 'string' && tcd.function.name) slot.name = tcd.function.name;
         // Cap accumulated args so a hostile stream can't grow one tool call unbounded (OOM).
         if (typeof tcd.function?.arguments === 'string') {
           const room = (1 << 20) - slot.arguments.length;
@@ -234,9 +235,9 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     return {
       content,
       reasoning,
-      // Drop incomplete tool calls (empty id/name from malformed deltas) — sending or persisting
-      // them 400s the next request and poisons history before reload cleanup can run.
-      toolCalls: toolCalls.filter((t) => !!t && !!t.id && !!t.name),
+      // Drop incomplete tool calls (empty/non-string id/name from malformed deltas) — sending or
+      // persisting them 400s the next request and poisons history before reload cleanup can run.
+      toolCalls: toolCalls.filter((t) => !!t && typeof t.id === 'string' && t.id && typeof t.name === 'string' && t.name),
       finishReason: cancelled ? finishReason ?? 'stop' : finishReason,
       status,
       cancelled,

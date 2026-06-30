@@ -93,7 +93,8 @@ export const win = {
 // Rects are PHYSICAL pixels relative to the client area (CSS rect * devicePixelRatio).
 export interface PreviewRect { x: number; y: number; w: number; h: number }
 export const webpreview = {
-    show:      (url: string, r: PreviewRect) => invoke<boolean>('preview.show', { url, ...r }),
+    // nav=true forces a (re)navigation; nav=false just repositions/re-shows without reloading the page.
+    show:      (url: string, r: PreviewRect, nav = true) => invoke<boolean>('preview.show', { url, ...r, nav }),
     setBounds: (r: PreviewRect) => invoke<boolean>('preview.setBounds', r),
     hide:      () => invoke<boolean>('preview.hide'),
 };

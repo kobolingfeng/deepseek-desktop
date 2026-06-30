@@ -1275,6 +1275,7 @@ static void reg_shell_app() {
         // Case-insensitive scheme check (the renderer accepts HTTP://… too).
         if (_strnicmp(url.c_str(), "http://", 7) != 0 && _strnicmp(url.c_str(), "https://", 8) != 0) return false;
         int x = a.value("x", 0), y = a.value("y", 0), w = a.value("w", 0), h = a.value("h", 0);
+        bool nav = a.value("nav", true); // false = reposition/re-show only (cover/uncover); true = (re)load
         RECT b{ x, y, x + w, y + h };
         auto wurl = U2W(url);
         g_previewPendingBounds = b;
@@ -1282,9 +1283,9 @@ static void reg_shell_app() {
         g_previewPendingVisible = true;
         if (g_previewCtrl) { // reuse the existing controller
             g_previewCtrl->put_Bounds(b);
-            // Only navigate when the URL actually changed — re-showing after a cover/uncover must
-            // not reload the page.
-            if (g_previewView && wurl != g_previewLoadedUrl) { g_previewView->Navigate(wurl.c_str()); g_previewLoadedUrl = wurl; }
+            // Navigate on an explicit (re)load or a real URL change — but NOT on a bare re-show after a
+            // cover/uncover, which must not reload the page.
+            if (g_previewView && (nav || wurl != g_previewLoadedUrl)) { g_previewView->Navigate(wurl.c_str()); g_previewLoadedUrl = wurl; }
             g_previewCtrl->put_IsVisible(TRUE);
             return true;
         }
@@ -1299,8 +1300,11 @@ static void reg_shell_app() {
                 g_previewCtrl = ctrl;
                 ctrl->get_CoreWebView2(&g_previewView);
                 ComPtr<ICoreWebView2Controller3> c3;
-                if (SUCCEEDED(ctrl->QueryInterface(IID_PPV_ARGS(&c3))))
+                if (SUCCEEDED(ctrl->QueryInterface(IID_PPV_ARGS(&c3)))) {
                     c3->put_BoundsMode(COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
+                    c3->put_ShouldDetectMonitorScaleChanges(FALSE);     // match the main controller's
+                    c3->put_RasterizationScale(GetDpiForWindow(g_hwnd) / 96.0); // raw-pixel + scale setup
+                }
                 ctrl->put_Bounds(g_previewPendingBounds);
                 if (g_previewView) {
                     ComPtr<ICoreWebView2Settings> st;
@@ -1645,7 +1649,7 @@ static void reg_http() {
                 if (!PostMessageW(g_hwnd, WM_STREAM_EVENT, 0, (LPARAM)p))
                     delete p;
             };
-            [&]() {
+            try { [&]() {
                 auto fail = [&](const std::string& m) {
                     if (stream->cancel.load()) return;
                     post(new json{{"id", id}, {"type", "error"}, {"error", m}});
@@ -1751,7 +1755,7 @@ static void reg_http() {
                         post(new json{{"id", id}, {"type", "chunk"}, {"data", buffer}});
                     post(new json{{"id", id}, {"type", "done"}, {"status", (int)statusCode}});
                 }
-            }();
+            }(); } catch (...) { /* a detached worker must never throw out of the thread (e.g. bad_alloc) */ }
             std::lock_guard<std::mutex> lk(g_streamMutex);
             auto it = g_streams.find(id);
             if (it != g_streams.end() && it->second == stream)
@@ -2692,14 +2696,16 @@ static void reg_extras() {
                 try {
                 for (;;) {
                     if (!PeekNamedPipe(h, nullptr, 0, nullptr, &avail, nullptr)) break; // pipe broken/closed
+                    // Poll root exit EVERY iteration (not only when idle): a descendant that keeps
+                    // writing after the root exits would otherwise keep avail>0 forever and we'd never
+                    // notice the root was gone → infinite read.
+                    if (!rootGone && WaitForSingleObject(proc, 0) == WAIT_OBJECT_0) rootGone = true;
                     if (avail > 0) {
                         if (!ReadFile(h, buf, sizeof(buf), &rd, nullptr) || rd == 0) break;
                         if (result.size() < OUT_CAP) result.append(buf, rd);
                         else if (rootGone) break; // capped AND root gone → stop chasing a daemon's output
                     } else if (rootGone) {
                         break; // root gone and nothing left buffered → done
-                    } else if (WaitForSingleObject(proc, 0) == WAIT_OBJECT_0) {
-                        rootGone = true; // re-peek next iteration to catch last-moment output, then exit
                     } else {
                         Sleep(10); // idle: let the child produce more
                     }
@@ -2845,6 +2851,7 @@ static void reg_extras() {
         // Reader thread owns hStdoutR + the process handle: fills the buffer, and on EOF
         // records the exit code and closes stdin.
         HANDLE hProc = pi.hProcess;
+        try {
         std::thread([s, outR, hProc]() {
             char b[4096];
             DWORD rd;
@@ -2867,6 +2874,14 @@ static void reg_extras() {
                 s->stdinOpen = false;
             }
         }).detach();
+        } catch (...) {
+            // Reader thread couldn't start (resource exhaustion): don't leave a running child + handles.
+            TerminateProcess(hProc, 1);
+            CloseHandle(outR);
+            CloseHandle(hProc);
+            { std::lock_guard<std::mutex> lk(g_sessMutex); g_sessions.erase(id); }
+            throw std::runtime_error("failed to start session reader thread");
+        }
 
         return json{{"sessionId", id}, {"pid", (int)s->pid}};
     });
@@ -3082,6 +3097,7 @@ static void reg_extras() {
 
         // Reader thread owns outR + the process handle (mirrors the session reader).
         HANDLE hProc = pi.hProcess;
+        try {
         std::thread([p, outR, hProc]() {
             char b[4096];
             DWORD rd;
@@ -3103,6 +3119,13 @@ static void reg_extras() {
                 p->inOpen = false;
             }
         }).detach();
+        } catch (...) {
+            TerminateProcess(hProc, 1);
+            CloseHandle(outR);
+            CloseHandle(hProc);
+            { std::lock_guard<std::mutex> lk(g_ptyMutex); g_ptys.erase(id); }
+            throw std::runtime_error("failed to start pty reader thread");
+        }
 
         return json{{"ptyId", id}, {"pid", (int)pi.dwProcessId}};
     });
@@ -3588,7 +3611,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_ctrl->put_Bounds(b);
         }
         if (w == SIZE_MAXIMIZED)      ipc_emit("window.maximized");
-        else if (w == SIZE_MINIMIZED) ipc_emit("window.minimized");
+        else if (w == SIZE_MINIMIZED) {
+            ipc_emit("window.minimized");
+            // Renderer rAF pauses while minimized so it can't reposition the preview overlay; hide it
+            // now (the rAF loop reasserts visibility/bounds on restore) to avoid a stale-rect paint.
+            if (g_previewCtrl) g_previewCtrl->put_IsVisible(FALSE);
+        }
         else if (w == SIZE_RESTORED)  ipc_emit("window.restored");
         ipc_emit("window.resized", {{"w", (int)LOWORD(l)}, {"h", (int)HIWORD(l)}});
         return 0;
@@ -3600,6 +3628,10 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 ctrl3->put_RasterizationScale(HIWORD(w) / 96.0);
             auto* r = reinterpret_cast<RECT*>(l);
             SetWindowPos(h, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER);
+        }
+        if (g_previewCtrl) { // keep the isolated preview overlay at the same scale as the main webview
+            ComPtr<ICoreWebView2Controller3> pc3;
+            if (SUCCEEDED(g_previewCtrl.As(&pc3))) pc3->put_RasterizationScale(HIWORD(w) / 96.0);
         }
         return 0;
 

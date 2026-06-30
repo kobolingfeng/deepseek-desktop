@@ -132,7 +132,10 @@ export function loadSettings(): Settings {
           .map((m: { name: unknown; url: unknown }) => ({ name: String(m.name ?? '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64), url: String(m.url ?? '') }))
           .filter((m: { name: string; url: string }) => m.name && m.url)
       : [];
-    if (!Array.isArray(s.customCommands)) s.customCommands = [];
+    // Validate each element — Composer does c.name.trim()/c.prompt.trim(), so a malformed entry crashes render.
+    s.customCommands = Array.isArray(s.customCommands)
+      ? s.customCommands.filter((c: any) => c && typeof c === 'object' && typeof c.name === 'string' && typeof c.prompt === 'string')
+      : [];
     if (!s.toolPermissions || typeof s.toolPermissions !== 'object') s.toolPermissions = { ...DEFAULT_SETTINGS.toolPermissions };
     if (typeof s.model !== 'string' || !s.model) s.model = DEFAULT_SETTINGS.model;
     if (typeof s.globalMemory !== 'string') s.globalMemory = '';
@@ -180,6 +183,13 @@ export function loadConversations(): Conversation[] {
           // follow it, keep only matched (nonempty-string-id'd) pairs, dedupe by id, and drop any
           // other / empty-id tool message. Every field is guarded — one bad message must not throw.
           const messages: typeof rawMsgs = [];
+          // Coerce the scalar fields a render/turn path dereferences, so a malformed persisted value
+          // (non-string content, non-number createdAt) can't crash the UI or poison the next request.
+          const coerceMsg = (mm: any) => ({
+            ...mm,
+            content: typeof mm.content === 'string' ? mm.content : String(mm.content ?? ''),
+            createdAt: typeof mm.createdAt === 'number' ? mm.createdAt : Date.now(),
+          });
           for (let i = 0; i < rawMsgs.length; i++) {
             const m = rawMsgs[i];
             if (!m || typeof m !== 'object' || typeof m.role !== 'string') continue;
@@ -196,18 +206,18 @@ export function loadConversations(): Conversation[] {
               const keptCalls: typeof tcs = [];
               const seenCall = new Set<string>();
               for (const t of tcs) if (resultIds.has(t.id) && !seenCall.has(t.id)) { seenCall.add(t.id); keptCalls.push(t); }
-              messages.push({ ...m, toolCalls: keptCalls.length ? keptCalls : undefined, pending: false });
+              messages.push(coerceMsg({ ...m, toolCalls: keptCalls.length ? keptCalls : undefined, pending: false }));
               // Emit exactly one result per kept call id, in order.
               const usedResult = new Set<string>();
               for (const r of following) {
                 if (typeof r.toolCallId === 'string' && seenCall.has(r.toolCallId) && !usedResult.has(r.toolCallId)) {
                   usedResult.add(r.toolCallId);
-                  messages.push(r.pending ? { ...r, pending: false } : r);
+                  messages.push(coerceMsg(r.pending ? { ...r, pending: false } : r));
                 }
               }
               i = j - 1; // skip the consumed tool results
             } else {
-              messages.push(m.pending ? { ...m, pending: false } : m);
+              messages.push(coerceMsg(m.pending ? { ...m, pending: false } : m));
             }
           }
           return {
