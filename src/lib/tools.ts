@@ -734,7 +734,8 @@ async function walkFiles(root: string, max = 4000, maxDirs = 4000): Promise<stri
 }
 
 function globToRegExp(glob: string): RegExp {
-  const g = glob.replace(/\\/g, '/').trim();
+  // Cap length + collapse runs of '*' so a pathological glob can't build a catastrophic regex.
+  const g = glob.replace(/\\/g, '/').trim().slice(0, 400).replace(/\*{3,}/g, '**');
   let re = '';
   for (let i = 0; i < g.length; i++) {
     const c = g[i];
@@ -987,7 +988,8 @@ export function describeTool(tc: ToolCall): { title: string; detail: string } {
     case 'forget':
       return { title: 'Forget', detail: String(a.query || '') };
     case 'create_skill':
-      return { title: 'Create skill', detail: '/' + String(a.id || '') };
+      // Show the hint so an Ask-mode approval isn't blind to what the skill will inject.
+      return { title: 'Create skill', detail: '/' + String(a.id || '') + ' — ' + String(a.hint || '').slice(0, 200) };
     case 'delete_skill':
       return { title: 'Delete skill', detail: '/' + String(a.id || '') };
     case 'add_mcp_server':
@@ -1154,6 +1156,9 @@ export async function executeTool(tc: ToolCall, settings: Settings, ctx: ToolCtx
       const oldStr = String(args.old_string ?? '');
       const newStr = String(args.new_string ?? '');
       if (!oldStr) throw new Error('old_string is required');
+      const est = await fs.stat(p).catch(() => null);
+      if (est && est.size > 25_000_000)
+        throw new Error(`file is too large to edit in-place (${Math.round(est.size / 1e6)} MB); the cap is 25 MB`);
       const content = await fs.readTextFile(p);
       const count = content.split(oldStr).length - 1;
       if (count === 0) throw new Error('old_string was not found in the file');

@@ -23,7 +23,6 @@ import {
   describeTool,
   executeTool,
   isKnownTool,
-  isPrivateUrl,
   resolvePath,
   TOOL_SCHEMAS,
   toolPerm,
@@ -180,35 +179,10 @@ function estimateContextTokens(messages: Message[], systemPrompt: string): numbe
   return Math.ceil(totalChars(messages, systemPrompt) / 3.5);
 }
 
-// Auto-detect MCP servers configured in the project dir (codex/Claude/Cursor/VS Code
-// style config files). Only HTTP servers (those with a `url`) are usable here.
-async function detectProjectMcp(dir: string): Promise<{ name: string; url: string }[]> {
-  if (!dir) return [];
-  const base = dir.replace(/[\\/]+$/, '');
-  const candidates = ['.mcp.json', 'mcp.json', '.cursor\\mcp.json', '.vscode\\mcp.json'];
-  const out: { name: string; url: string }[] = [];
-  const seen = new Set<string>();
-  for (const rel of candidates) {
-    const p = base + '\\' + rel;
-    try {
-      if (!(await fs.exists(p))) continue;
-      const obj = JSON.parse(await fs.readTextFile(p));
-      const servers = obj?.mcpServers || obj?.servers || {};
-      for (const [name, v] of Object.entries(servers as Record<string, any>)) {
-        const url = typeof v?.url === 'string' ? v.url : '';
-        const safeName = name.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40);
-        // Untrusted repo config: only auto-connect HTTPS, non-private hosts.
-        if (safeName && /^https:\/\//i.test(url) && !isPrivateUrl(url) && !seen.has(safeName)) {
-          seen.add(safeName);
-          out.push({ name: safeName, url });
-        }
-      }
-    } catch {
-      /* ignore missing/malformed config */
-    }
-  }
-  return out;
-}
+// NOTE: project-dir MCP auto-detection (.mcp.json etc.) was removed for security — an untrusted
+// repo could ship a config that silently connected the agent to an attacker's MCP server (whose
+// tool schemas get injected and whose endpoint receives the agent's tool calls). MCP servers must
+// now be added EXPLICITLY (Settings, or the approval-gated add_mcp_server tool) = explicit trust.
 
 // Auto-load project instructions (AGENTS.md / CLAUDE.md) from the working dir,
 // the way codex / Claude Code do, and fold them into the system context.
@@ -467,12 +441,10 @@ export function useChat() {
     // Debounce so editing a server URL in Settings doesn't reconnect on every keystroke.
     const timer = setTimeout(() => {
       (async () => {
-        const fromSettings = settingsRef.current.mcpServers
+        // Only EXPLICITLY-configured servers (Settings / add_mcp_server) — no untrusted-repo auto-connect.
+        const all = settingsRef.current.mcpServers
           .filter((s) => s.name.trim() && s.url.trim())
           .map((s) => ({ name: s.name.trim(), url: s.url.trim() }));
-        const detected = await detectProjectMcp(settingsRef.current.workingDir);
-        const names = new Set(fromSettings.map((s) => s.name));
-        const all = [...fromSettings, ...detected.filter((d) => !names.has(d.name))];
         if (!all.length) {
           if (!cancelled) {
             mcpRef.current = [];
@@ -510,11 +482,13 @@ export function useChat() {
   function newConversation(): Conversation {
     // Codex-style: don't pile up empty chats. If there's already an unsent one
     // (prefer the active chat), just switch to it instead of creating another.
+    // Reuse an empty unsent chat — but only a cwd-LESS one, so a global "New chat" never inherits
+    // a previous project chat's working dir (newConversationInDir sets cwd after this call).
     const active = convsRef.current.find((c) => c.id === activeId);
     const empty =
-      active && active.messages.length === 0 && !active.archived
+      active && active.messages.length === 0 && !active.archived && !active.cwd
         ? active
-        : convsRef.current.find((c) => c.messages.length === 0 && !c.archived);
+        : convsRef.current.find((c) => c.messages.length === 0 && !c.archived && !c.cwd);
     if (empty) {
       setActiveId(empty.id);
       bumpNow();
@@ -1039,6 +1013,7 @@ export function useChat() {
                 out = await withFileLock(async () => {
                   if (signal.aborted) throw new Error('sub-agent cancelled');
                   await snapshotEdit(checkpoint, sub, effCwd);
+                  if (signal.aborted) throw new Error('sub-agent cancelled'); // abort during snapshot
                   return executeTool(sub, subCfg, { cancelId: cid, signal });
                 });
               } else {
@@ -1518,6 +1493,7 @@ export function useChat() {
                     // successful edit (which would set producedEdits + open the changes panel).
                     if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.');
                     await snapshotEdit(checkpoint, tc, effCwd);
+                    if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.'); // Stop during snapshot
                     return executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
                   });
                 } else if (tc.name === 'run_subagent') {
@@ -1620,6 +1596,9 @@ export function useChat() {
       if (last && last.role === 'assistant') {
         last.pending = false;
         last.error = msg;
+        // A stream that errored mid-response may have left PARTIAL tool_calls with no tool results.
+        // Drop them so the next request isn't poisoned with unmatched tool_calls (→ API 400).
+        last.toolCalls = undefined;
       } else {
         conv.messages.push({
           id: newId('e'),
@@ -1693,7 +1672,13 @@ export function useChat() {
         }
       }
       // Run the next queued message (typed while this turn ran) as a fresh turn.
-      if (!turn.stopped && conv.queued && conv.queued.length) {
+      if (turn.stopped) {
+        // A Stop drops anything queued during the stop window — never replay it on a later turn.
+        if (conv.queued?.length) {
+          conv.queued = [];
+          bumpNow();
+        }
+      } else if (conv.queued && conv.queued.length) {
         const next = conv.queued.shift();
         bumpNow();
         if (next) void beginTurn(conv, next.text);

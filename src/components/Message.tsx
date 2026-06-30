@@ -3,9 +3,10 @@ import { Markdown } from './Markdown';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolCallCard } from './ToolCallCard';
 import { Copy, Check, Layers, TriangleAlert } from 'lucide-react';
-import { clipboard, shell } from '../api';
+import { clipboard, notification, shell } from '../api';
 import { extractChanges, type FileChange } from '../lib/diff';
 import { showContextMenu } from '../lib/contextMenu';
+import { openPathSafely } from '../lib/safeOpen';
 import { useI18n, type Lang } from '../lib/i18n';
 import { loadSettings } from '../lib/storage';
 import type { Message as Msg } from '../lib/types';
@@ -145,7 +146,7 @@ function EditedFileRow({ change }: { change: FileChange }) {
   const fileAbs = change.abs || resolveAbs(change.path);
   const openFile = (e: React.MouseEvent) => {
     e.stopPropagation();
-    shell.open(fileAbs).catch(() => {});
+    openPathSafely(fileAbs, () => notification.show(t('linkExecReveal'), fileAbs).catch(() => {}));
   };
   const fileMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -153,7 +154,7 @@ function EditedFileRow({ change }: { change: FileChange }) {
     const abs = fileAbs;
     const parent = abs.replace(/[\\/][^\\/]*$/, '') || abs;
     showContextMenu(e.clientX, e.clientY, [
-      { label: t('ctxOpen'), onClick: () => shell.open(abs).catch(() => {}) },
+      { label: t('ctxOpen'), onClick: () => openPathSafely(abs, () => notification.show(t('linkExecReveal'), abs).catch(() => {})) },
       { label: t('ctxOpenFolder'), onClick: () => shell.open(parent).catch(() => {}) },
       { label: t('ctxReveal'), onClick: () => shell.execute('explorer.exe', ['/select,', abs]).catch(() => {}) },
       { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(abs).catch(() => {}) },

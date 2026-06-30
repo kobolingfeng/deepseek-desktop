@@ -152,22 +152,28 @@ export function loadConversations(): Conversation[] {
       .filter((c) => c && typeof c === 'object' && typeof c.id === 'string' && c.id)
       .map((c) => {
         const rawMsgs = Array.isArray(c.messages) ? c.messages : [];
-        // If the app was closed mid-turn the history can be inconsistent: an assistant tool_call
-        // without its result, OR a tool result without its call. Either makes the next API request
-        // 400. Two passes: (1) keep only assistant tool_calls that HAVE a result + clear stuck
-        // `pending`; (2) drop tool-result messages no surviving call references (orphans).
-        const haveResult = new Set(rawMsgs.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId));
-        const pass1 = rawMsgs.map((m) => {
+        // If the app was closed mid-turn the history can be inconsistent (assistant tool_call with
+        // no result, or an orphan tool result), which 400s the next API request. Normalize in
+        // SEQUENCE: pair each assistant-with-tool_calls with the tool results that immediately
+        // follow it, keep only matched (id'd) pairs, and drop any other / empty-id tool message.
+        const messages: typeof rawMsgs = [];
+        for (let i = 0; i < rawMsgs.length; i++) {
+          const m = rawMsgs[i];
+          if (m.role === 'tool') continue; // a tool result not consumed by a preceding block = orphan
           if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length) {
-            const kept = m.toolCalls.filter((t) => haveResult.has(t.id));
-            if (kept.length !== m.toolCalls.length) return { ...m, toolCalls: kept.length ? kept : undefined, pending: false };
+            let j = i + 1;
+            const following = [];
+            while (j < rawMsgs.length && rawMsgs[j].role === 'tool') following.push(rawMsgs[j++]);
+            const resultIds = new Set(following.filter((r) => r.toolCallId).map((r) => r.toolCallId));
+            const keptCalls = m.toolCalls.filter((t) => resultIds.has(t.id));
+            messages.push({ ...m, toolCalls: keptCalls.length ? keptCalls : undefined, pending: false });
+            const keptIds = new Set(keptCalls.map((t) => t.id));
+            for (const r of following) if (r.toolCallId && keptIds.has(r.toolCallId)) messages.push(r.pending ? { ...r, pending: false } : r);
+            i = j - 1; // skip the consumed tool results
+          } else {
+            messages.push(m.pending ? { ...m, pending: false } : m);
           }
-          return m.pending ? { ...m, pending: false } : m;
-        });
-        const refIds = new Set(
-          pass1.flatMap((m) => (m.role === 'assistant' && m.toolCalls ? m.toolCalls.map((t) => t.id) : [])),
-        );
-        const messages = pass1.filter((m) => !(m.role === 'tool' && m.toolCallId && !refIds.has(m.toolCallId)));
+        }
         return {
           ...c,
           title: typeof c.title === 'string' ? c.title : 'Chat',

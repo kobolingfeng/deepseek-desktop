@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Pencil, FileSpreadsheet, FilePlus, FileText, TriangleAlert, ExternalLink, RotateCw, Undo2 } from 'lucide-react';
 import { fs, shell } from '../api';
 import { extractChanges } from '../lib/diff';
+import { openPathSafely } from '../lib/safeOpen';
 import { useI18n } from '../lib/i18n';
 import { isPrivateUrl } from '../lib/tools';
 import { officePreviewHtml, previewKind, isPreviewableFile } from '../lib/office';
@@ -158,7 +159,7 @@ function ChangesTab({ controller }: { controller: ChatController }) {
                 <span className="diff-add">+{c.additions}</span> <span className="diff-del">-{c.deletions}</span>
               </span>
             </button>
-            <button className="change-open" title={t('ctxOpen')} onClick={() => shell.open(c.abs || resolve(c.path)).catch(() => {})}>
+            <button className="change-open" title={t('ctxOpen')} onClick={() => openPathSafely(c.abs || resolve(c.path))}>
               <ExternalLink size={13} strokeWidth={1.9} />
             </button>
           </div>
@@ -206,12 +207,16 @@ function PreviewTab({ controller }: { controller: ChatController }) {
     let cancelled = false;
     (async () => {
       try {
-        if (kind === 'md') {
+        if (kind === 'md' || kind === 'html') {
+          // Cap before reading so a huge .md/.html can't freeze/OOM the renderer (office/image/text
+          // are capped inside officePreviewHtml).
+          const st = await fs.stat(src).catch(() => null);
+          if (st && st.size > 8e6) {
+            if (!cancelled) setLoadErr(`(file too large to preview — ${(st.size / 1e6).toFixed(1)} MB)`);
+            return;
+          }
           const txt = await fs.readTextFile(src);
-          if (!cancelled) setMdText(txt);
-        } else if (kind === 'html') {
-          const txt = await fs.readTextFile(src);
-          if (!cancelled) setRawHtml(txt);
+          if (!cancelled) (kind === 'md' ? setMdText : setRawHtml)(txt);
         } else {
           const html = await officePreviewHtml(src); // office / image / text
           if (!cancelled) setDocHtml(html);
