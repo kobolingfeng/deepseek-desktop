@@ -321,6 +321,7 @@ static int g_nextWatchId = 1;
 #define WM_FILE_CHANGED (WM_USER + 2)
 #define WM_STREAM_EVENT (WM_USER + 3)
 #define WM_SHELL_DONE   (WM_USER + 4)
+#define WM_IPC_RESPOND  (WM_USER + 5)
 
 // Child windows
 struct ChildWindow {
@@ -541,10 +542,31 @@ static void ipc_on(const std::string& cmd, IpcFn fn) {
     g_cmds[cmd] = std::move(fn);
 }
 
+// Serialize to a WebMessage string WITHOUT throwing on non-UTF-8 bytes (e.g. a binary http.request
+// body) — invalid sequences are replaced rather than raising json::type_error, which would otherwise
+// escape WndProc/ipc_dispatch and lose the response or crash the app.
+static std::wstring safeDumpW(const json& j) {
+    return U2W(j.dump(-1, ' ', false, json::error_handler_t::replace));
+}
+
 static void ipc_emit(const std::string& ev, const json& data = {}) {
     if (!g_view) return;
     json m = {{"event", ev}, {"data", data}};
-    g_view->PostWebMessageAsJson(U2W(m.dump()).c_str());
+    g_view->PostWebMessageAsJson(safeDumpW(m).c_str());
+}
+
+// ── Deferred (async) IPC ──────────────────────────────────────────────────
+// Handlers that must run OFF the UI thread (e.g. http.request) register with ipc_on_async; when
+// their worker finishes it calls ipc_respond(id, {"result"|"error": ...}), which marshals the
+// reply to the UI thread (PostWebMessageAsJson is UI-thread-only) via WM_IPC_RESPOND.
+using IpcAsyncFn = std::function<void(const json&, int)>;
+static std::unordered_map<std::string, IpcAsyncFn> g_cmdsAsync;
+static void ipc_on_async(const std::string& cmd, IpcAsyncFn fn) { g_cmdsAsync[cmd] = std::move(fn); }
+struct IpcRespMsg { int id; json payload; };
+static void ipc_respond(int id, json payload) {
+    if (!g_hwnd) return;
+    auto* p = new IpcRespMsg{id, std::move(payload)};
+    if (!PostMessageW(g_hwnd, WM_IPC_RESPOND, 0, (LPARAM)p)) delete p;
 }
 
 // Build a small taskbar overlay icon: a red circle with the count drawn on it.
@@ -628,18 +650,25 @@ static void ipc_dispatch(LPCWSTR raw) {
             }
             if (it != g_permissions.end() && !it->second) {
                 resp["error"] = "permission denied: " + cmd;
-                g_view->PostWebMessageAsJson(U2W(resp.dump()).c_str());
+                g_view->PostWebMessageAsJson(safeDumpW(resp).c_str());
                 return;
             }
         }
 
+        // Async handlers run off the UI thread and reply later via ipc_respond.
+        if (auto ait = g_cmdsAsync.find(cmd); ait != g_cmdsAsync.end()) {
+            int id = req.value("id", -1);
+            try { ait->second(args, id); }
+            catch (const std::exception& e) { ipc_respond(id, json{{"error", e.what()}}); }
+            return;
+        }
         if (auto it = g_cmds.find(cmd); it != g_cmds.end()) {
             try { resp["result"] = it->second(args); }
             catch (const std::exception& e) { resp["error"] = e.what(); }
         } else {
             resp["error"] = "unknown: " + cmd;
         }
-        g_view->PostWebMessageAsJson(U2W(resp.dump()).c_str());
+        g_view->PostWebMessageAsJson(safeDumpW(resp).c_str());
     } catch (...) {}
 }
 
@@ -1022,7 +1051,11 @@ static void reg_fs() {
     ipc_on("fs.readDir", [](const json& a) -> json {
         auto path = a.value("path", std::string{});
         json entries = json::array();
+        int n = 0;
+        // Cap entries so a pathological directory (hundreds of thousands of files) can't freeze
+        // or OOM the UI thread; callers (walkFiles/search) already bound their own totals.
         for (auto& e : fspath::directory_iterator(U2W(path))) {
+            if (++n > 20000) break;
             entries.push_back({
                 {"name",   W2U(e.path().filename().wstring())},
                 {"isDir",  e.is_directory()},
@@ -1363,8 +1396,27 @@ static void cancelHttpStream(const std::shared_ptr<HttpStream>& stream) {
     closeHttpStreamRequest(stream);
 }
 
+// RAII for WinHTTP handles: closes on EVERY scope exit, including a C++ exception thrown by the
+// string/json work mid-request (header build, response-header alloc, body append, the 50 MB cap).
+// The old manual WinHttpCloseHandle calls miss those exception paths and leak handles.
+struct WinHttpH {
+    HINTERNET h{nullptr};
+    WinHttpH() = default;
+    WinHttpH(HINTERNET x) : h(x) {}
+    WinHttpH(WinHttpH&& o) noexcept : h(o.h) { o.h = nullptr; }
+    WinHttpH& operator=(WinHttpH&& o) noexcept { if (this != &o) { if (h) WinHttpCloseHandle(h); h = o.h; o.h = nullptr; } return *this; }
+    WinHttpH(const WinHttpH&) = delete;
+    WinHttpH& operator=(const WinHttpH&) = delete;
+    ~WinHttpH() { if (h) WinHttpCloseHandle(h); }
+    operator HINTERNET() const { return h; }
+};
+
 static void reg_http() {
-    ipc_on("http.request", [](const json& a) -> json {
+    ipc_on_async("http.request", [](const json& a, int id) {
+      // Run off the UI thread (synchronous WinHTTP would otherwise freeze the window).
+      std::thread([a, id]() {
+        json httpOut;
+        try {
         auto url    = a.value("url", std::string{});
         auto method = a.value("method", std::string{"GET"});
         auto body   = a.value("body", std::string{});
@@ -1385,33 +1437,27 @@ static void reg_http() {
             throw std::runtime_error("Invalid HTTP method");
 
         bool https = (uc.nScheme == INTERNET_SCHEME_HTTPS);
-        HINTERNET hSession = WinHttpOpen(L"QQ/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-                                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        WinHttpH hSession = WinHttpOpen(L"QQ/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                        WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (!hSession) throw std::runtime_error("WinHttpOpen failed");
+        // Bound every phase so a dead/slow server can't wedge the worker forever.
+        WinHttpSetTimeouts(hSession, 10000, 20000, 30000, 60000);
 
-        HINTERNET hConnect = WinHttpConnect(hSession, host, uc.nPort, 0);
-        if (!hConnect) { WinHttpCloseHandle(hSession); throw std::runtime_error("WinHttpConnect failed"); }
+        WinHttpH hConnect = WinHttpConnect(hSession, host, uc.nPort, 0);
+        if (!hConnect) throw std::runtime_error("WinHttpConnect failed");
 
         auto wMethod = U2W(method);
-        HINTERNET hRequest = WinHttpOpenRequest(hConnect, wMethod.c_str(), objectPath.c_str(),
-                                                 nullptr, WINHTTP_NO_REFERER,
-                                                 WINHTTP_DEFAULT_ACCEPT_TYPES,
-                                                 https ? WINHTTP_FLAG_SECURE : 0);
-        if (!hRequest) {
-            WinHttpCloseHandle(hConnect);
-            WinHttpCloseHandle(hSession);
-            throw std::runtime_error("WinHttpOpenRequest failed");
-        }
+        WinHttpH hRequest = WinHttpOpenRequest(hConnect, wMethod.c_str(), objectPath.c_str(),
+                                               nullptr, WINHTTP_NO_REFERER,
+                                               WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                               https ? WINHTTP_FLAG_SECURE : 0);
+        if (!hRequest) throw std::runtime_error("WinHttpOpenRequest failed");
 
-        // Add custom headers
+        // Add custom headers (handles auto-close via WinHttpH on any throw below)
         std::wstring allHeaders;
         for (auto& [k, v] : hdrs.items()) {
-            if (!v.is_string() || !is_http_token(k) || has_header_injection_chars(v.get<std::string>())) {
-                WinHttpCloseHandle(hRequest); // close the open handles before bailing (no leak)
-                WinHttpCloseHandle(hConnect);
-                WinHttpCloseHandle(hSession);
+            if (!v.is_string() || !is_http_token(k) || has_header_injection_chars(v.get<std::string>()))
                 throw std::runtime_error("Invalid HTTP header");
-            }
             allHeaders += U2W(k) + L": " + U2W(v.get<std::string>()) + L"\r\n";
         }
         if (!allHeaders.empty())
@@ -1421,12 +1467,8 @@ static void reg_http() {
         LPVOID bodyPtr = body.empty() ? WINHTTP_NO_REQUEST_DATA : (LPVOID)body.data();
         DWORD bodyLen  = body.empty() ? 0 : (DWORD)body.size();
         if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, bodyPtr, bodyLen, bodyLen, 0) ||
-            !WinHttpReceiveResponse(hRequest, nullptr)) {
-            WinHttpCloseHandle(hRequest);
-            WinHttpCloseHandle(hConnect);
-            WinHttpCloseHandle(hSession);
+            !WinHttpReceiveResponse(hRequest, nullptr))
             throw std::runtime_error("HTTP request failed");
-        }
 
         // Status code
         DWORD statusCode = 0, sz = sizeof(statusCode);
@@ -1449,13 +1491,21 @@ static void reg_http() {
             WinHttpReadData(hRequest, chunk.data(), available, &read);
             chunk.resize(read);
             respBody += chunk;
+            if (respBody.size() > (50u << 20)) // 50 MB cap — fail loudly rather than silently truncate
+                throw std::runtime_error("HTTP response exceeded 50 MB limit");
         }
+        // hSession/hConnect/hRequest auto-close here (and on every throw above) via WinHttpH.
 
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-
-        return json{{"status", statusCode}, {"headers", W2U(respHdrs)}, {"body", respBody}};
+        json result;
+        result["status"] = (int)statusCode;
+        result["headers"] = W2U(respHdrs);
+        result["body"] = respBody;
+        httpOut["result"] = result;
+        } catch (const std::exception& e) {
+            httpOut["error"] = e.what();
+        }
+        ipc_respond(id, httpOut);
+      }).detach();
     });
 
     // Streaming HTTP for SSE (e.g. chat completions with stream:true).
@@ -1582,6 +1632,12 @@ static void reg_http() {
                     if (nl != std::string::npos) {
                         post(new json{{"id", id}, {"type", "chunk"}, {"data", buffer.substr(0, nl + 1)}});
                         buffer.erase(0, nl + 1);
+                    }
+                    // Cap only the PENDING no-newline remainder (after emitting complete lines), so a
+                    // big read full of normal newline-delimited data isn't mistaken for one giant line.
+                    if (buffer.size() > (8u << 20)) {
+                        if (!stream->cancel.load()) { fail("stream line exceeded the size limit"); errored = true; }
+                        break;
                     }
                 }
 
@@ -2513,41 +2569,44 @@ static void reg_extras() {
                 if (entry->cancel.load()) killTree(pi.dwProcessId); // cancel arrived during the spawn race
             }
 
-            // Cap stored output (the TS layer truncates to ~30 KB anyway); keep DRAINING
-            // past the cap so the child never blocks on a full pipe — just stop appending.
+            // Drain both pipes by POLLING and stop once the root process has exited — so a
+            // backgrounded descendant that inherited (and still holds) our stdout can't keep the
+            // read blocked forever (a hung run_command). The two pipes drain CONCURRENTLY so a full
+            // buffer on one can't deadlock the other. Cap stored output but keep draining past it.
             static const size_t OUT_CAP = 4u << 20; // 4 MB
-            auto readPipe = [](HANDLE h) -> std::string {
+            auto drainPipe = [](HANDLE h, HANDLE proc) -> std::string {
                 std::string result;
                 char buf[4096];
-                DWORD rd;
-                while (ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                    if (result.size() < OUT_CAP) result.append(buf, rd);
+                DWORD rd = 0, avail = 0;
+                bool rootGone = false;
+                try {
+                for (;;) {
+                    if (!PeekNamedPipe(h, nullptr, 0, nullptr, &avail, nullptr)) break; // pipe broken/closed
+                    if (avail > 0) {
+                        if (!ReadFile(h, buf, sizeof(buf), &rd, nullptr) || rd == 0) break;
+                        if (result.size() < OUT_CAP) result.append(buf, rd);
+                        else if (rootGone) break; // capped AND root gone → stop chasing a daemon's output
+                    } else if (rootGone) {
+                        break; // root gone and nothing left buffered → done
+                    } else if (WaitForSingleObject(proc, 0) == WAIT_OBJECT_0) {
+                        rootGone = true; // re-peek next iteration to catch last-moment output, then exit
+                    } else {
+                        Sleep(10); // idle: let the child produce more
+                    }
+                }
+                } catch (...) { /* OOM on append: keep what we drained, never throw out of the thread */ }
                 CloseHandle(h);
                 return result;
             };
-
-            struct PipeCtx { HANDLE h; std::string data; };
-            auto* errCtx = new PipeCtx{hErrR, {}};
-            HANDLE hErrThread = CreateThread(nullptr, 0, [](LPVOID p) -> DWORD {
-                auto* c = (PipeCtx*)p;
-                char buf[4096]; DWORD rd;
-                while (ReadFile(c->h, buf, sizeof(buf), &rd, nullptr) && rd > 0)
-                    if (c->data.size() < OUT_CAP) c->data.append(buf, rd);
-                CloseHandle(c->h);
-                return 0;
-            }, errCtx, 0, nullptr);
-            auto stdout_ = readPipe(hOutR);
-            std::string stderr_;
-            if (hErrThread) {
-                WaitForSingleObject(hErrThread, INFINITE);
-                CloseHandle(hErrThread);
-                stderr_ = std::move(errCtx->data);
-            } else {
-                CloseHandle(hErrR); // thread creation failed (rare): discard stderr, avoid deadlock
-            }
-            delete errCtx;
-            WaitForSingleObject(pi.hProcess, INFINITE);
+            std::string errData;
+            std::thread errThread;
+            try { errThread = std::thread([&]() { errData = drainPipe(hErrR, pi.hProcess); }); }
+            catch (...) { CloseHandle(hErrR); } // thread creation failed (rare): drop stderr, avoid deadlock
+            std::string stdout_ = drainPipe(hOutR, pi.hProcess);
+            if (errThread.joinable()) errThread.join();
+            std::string stderr_ = std::move(errData);
             DWORD exitCode = 0;
+            WaitForSingleObject(pi.hProcess, INFINITE); // wait for the real exit (drain can stop earlier on pipe close)
             GetExitCodeProcess(pi.hProcess, &exitCode);
             unregister(); // remove before closing the handle so a stale cancel can't hit a reused PID
             CloseHandle(pi.hProcess);
@@ -3508,6 +3567,16 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         auto* data = reinterpret_cast<json*>(l);
         ipc_emit("shell.runResult", *data);
         delete data;
+        return 0;
+    }
+    case WM_IPC_RESPOND: {
+        auto* p = reinterpret_cast<IpcRespMsg*>(l);
+        if (g_view) {
+            json m = p->payload;
+            m["id"] = p->id;
+            g_view->PostWebMessageAsJson(safeDumpW(m).c_str()); // never throws on binary bodies
+        }
+        delete p;
         return 0;
     }
     case WM_KEYDOWN:
