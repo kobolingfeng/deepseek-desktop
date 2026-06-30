@@ -629,6 +629,27 @@ static HICON makeBadgeIcon(int count) {
     return icon;
 }
 
+// Only the app's OWN top frame may drive native IPC. A preview iframe (srcDoc -> "null" origin, or
+// a local dev-server page loaded with scripts enabled) must NOT be able to call shell.run/fs.* via
+// chrome.webview.postMessage — WebView2 delivers iframe messages to this same handler, so we gate on
+// the message Source origin (defense-in-depth on top of the iframe sandbox).
+static bool isTrustedIpcSource(const std::wstring& src) {
+    auto originOk = [&](const std::wstring& base) {
+        if (base.empty() || src.rfind(base, 0) != 0) return false; // must start with this origin
+        if (src.size() == base.size()) return true;                // exact origin
+        wchar_t c = src[base.size()];
+        return c == L'/' || c == L'?' || c == L'#';                // origin boundary (reject app.localhost.evil)
+    };
+    // Accept ONLY the app shell's TOP document (always /index.html), not merely the origin — so an
+    // app-origin subframe/popup (shouldn't exist, but defense-in-depth) can't drive native IPC.
+    static const wchar_t* docs[] = {
+        L"https://app.localhost/index.html", L"http://app.localhost/index.html",
+        L"https://app.local/index.html",     L"http://app.local/index.html",
+    };
+    for (auto d : docs) if (originOk(d)) return true;
+    return originOk(g_devUrl); // dev mode: the app itself IS the dev server (developer machine)
+}
+
 static void ipc_dispatch(LPCWSTR raw) {
     try {
         auto req = json::parse(W2U(raw));
@@ -1485,10 +1506,11 @@ static void reg_http() {
 
         // Response body
         std::string respBody;
-        DWORD available, read;
+        DWORD available = 0, read = 0;
         while (WinHttpQueryDataAvailable(hRequest, &available) && available > 0) {
             std::string chunk(available, 0);
-            WinHttpReadData(hRequest, chunk.data(), available, &read);
+            if (!WinHttpReadData(hRequest, chunk.data(), available, &read)) // don't resize() on a garbage count
+                throw std::runtime_error("HTTP read failed");
             chunk.resize(read);
             respBody += chunk;
             if (respBody.size() > (50u << 20)) // 50 MB cap — fail loudly rather than silently truncate
@@ -1778,10 +1800,9 @@ static DWORD WINAPI watchThread(LPVOID param) {
                     case FILE_ACTION_RENAMED_OLD_NAME: action = "renamed"; break;
                     case FILE_ACTION_RENAMED_NEW_NAME: action = "renamed"; break;
                 }
-                // Post to main thread
-                PostMessageW(g_hwnd, WM_FILE_CHANGED, w->id, (LPARAM)new json{
-                    {"id", w->id}, {"action", action}, {"path", W2U(name)}
-                });
+                // Post to main thread (delete on failure so a destroyed window can't leak the heap json)
+                auto* ev = new json{{"id", w->id}, {"action", action}, {"path", W2U(name)}};
+                if (!PostMessageW(g_hwnd, WM_FILE_CHANGED, w->id, (LPARAM)ev)) delete ev;
                 if (info->NextEntryOffset == 0) break;
                 info = (FILE_NOTIFY_INFORMATION*)((BYTE*)info + info->NextEntryOffset);
             }
@@ -1835,6 +1856,11 @@ static void reg_watcher() {
         int id = g_nextWatchId++;
         auto* w = new FileWatcher{hDir, nullptr, wpath, id, true};
         w->hThread = CreateThread(nullptr, 0, watchThread, w, 0, nullptr);
+        if (!w->hThread) { // don't publish a watcher with no thread (it would never fire + leak hDir)
+            CloseHandle(hDir);
+            delete w;
+            throw std::runtime_error("Cannot start watcher thread");
+        }
         g_watchers[id] = w;
         return id;
     });
@@ -2524,7 +2550,10 @@ static void reg_extras() {
             auto unregister = [&]() {
                 if (cancelId < 0) return;
                 std::lock_guard<std::mutex> lk(g_procMutex);
-                g_procs.erase(cancelId);
+                // Erase ONLY our own entry: a later run reusing this cancelId must not have its
+                // (newer) cancel handle removed by this older worker finishing.
+                auto it = g_procs.find(cancelId);
+                if (it != g_procs.end() && it->second == entry) g_procs.erase(it);
             };
 
             SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
@@ -3352,9 +3381,14 @@ static void setupWebView(ICoreWebView2Controller* ctrl) {
     g_view->add_WebMessageReceived(
         Callback<ICoreWebView2WebMessageReceivedEventHandler>(
         [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* a) -> HRESULT {
-            LPWSTR m; a->get_WebMessageAsJson(&m);
-            ipc_dispatch(m);
-            CoTaskMemFree(m);
+            // Reject IPC from any frame that isn't the app's own top document (e.g. preview iframes).
+            LPWSTR srcUri = nullptr;
+            if (FAILED(a->get_Source(&srcUri)) || !srcUri) { if (srcUri) CoTaskMemFree(srcUri); return S_OK; }
+            bool trusted = isTrustedIpcSource(srcUri);
+            CoTaskMemFree(srcUri);
+            if (!trusted) return S_OK;
+            LPWSTR m = nullptr;
+            if (SUCCEEDED(a->get_WebMessageAsJson(&m)) && m) { ipc_dispatch(m); CoTaskMemFree(m); }
             return S_OK;
         }).Get(), nullptr);
 
@@ -3893,6 +3927,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int ns) {
     }
 
     if (hMutex) CloseHandle(hMutex);
+    // Release WebView2 COM objects on this (owning) apartment BEFORE CoUninitialize.
+    if (g_ctrl) g_ctrl->Close();
+    g_view.Reset();
+    g_ctrl.Reset();
+    g_env.Reset();
     CoUninitialize();
     return (int)msg.wParam;
 }

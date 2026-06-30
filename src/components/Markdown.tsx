@@ -7,6 +7,7 @@ import { clipboard, fs, notification, shell } from '../api';
 import { showContextMenu } from '../lib/contextMenu';
 import { useI18n } from '../lib/i18n';
 import { loadSettings } from '../lib/storage';
+import { EXEC_RE } from '../lib/safeOpen';
 
 function extractText(node: ReactNode): string {
   if (node == null || node === false) return '';
@@ -82,7 +83,10 @@ function isFileish(h: string): boolean {
   return !!m && FILE_EXT.has(m[1].toLowerCase());
 }
 function resolveAbs(p: string, cwd?: string): string {
-  if (/^file:/i.test(p)) p = decodeURIComponent(p.replace(/^file:\/*/i, ''));
+  if (/^file:/i.test(p)) {
+    const stripped = p.replace(/^file:\/*/i, '');
+    try { p = decodeURIComponent(stripped); } catch { p = stripped; } // malformed %-escape must not crash render
+  }
   if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p.replace(/\//g, '\\');
   const wd = cwd || loadSettings().workingDir; // prefer the conversation's working dir
   return (wd ? wd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '') : p).replace(/\//g, '\\');
@@ -109,7 +113,8 @@ function ExternalLink({ href, children, cwd }: { href?: string; children?: React
 
   const openFile = async () => {
     // Never auto-run an executable from a link (the model could mislabel it) — reveal it instead.
-    if (/\.(exe|bat|cmd|com|scr|msi|ps1|psm1|vbs|vbe|wsf|jar|reg|hta|cpl|lnk|msc|pif)$/i.test(abs)) {
+    // Uses the shared EXEC_RE so the blocked-extension set stays in sync (was a stale inline list).
+    if (EXEC_RE.test(abs)) {
       shell.execute('explorer.exe', ['/select,', abs]).catch(() => {});
       notification.show(t('linkExecReveal'), abs).catch(() => {});
       return;

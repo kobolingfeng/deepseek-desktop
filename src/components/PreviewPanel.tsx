@@ -297,7 +297,12 @@ function PreviewTab({ controller }: { controller: ChatController }) {
         </button>
         <button
           className="ghost"
-          onClick={() => src && shell.open(src).catch(() => {})}
+          onClick={() => {
+            if (!src) return;
+            // A local file goes through the exec-reveal guard; only a real web URL opens in the browser.
+            if (kind !== 'web' && kind !== '') openPathSafely(src);
+            else shell.open(src).catch(() => {});
+          }}
           title={kind !== 'web' && kind !== '' ? t('panelOpenFile') : t('panelOpenBrowser')}
         >
           <ExternalLink size={14} strokeWidth={1.9} />

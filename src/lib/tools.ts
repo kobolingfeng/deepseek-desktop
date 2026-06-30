@@ -849,10 +849,37 @@ async function timedFetch(url: string, init: RequestInit, ms = 20000, extSignal?
   }
 }
 
+// Read a fetch Response body but stop after `cap` bytes — a hostile/huge page must not OOM the
+// renderer (read_url/web_search truncate to a few KB for the model anyway).
+async function cappedText(r: Response, cap = 8 << 20): Promise<string> {
+  const reader = r.body?.getReader();
+  if (!reader) {
+    const t = await r.text();
+    return t.length > cap ? t.slice(0, cap) : t;
+  }
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < cap) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const room = cap - total;
+      if (value.byteLength > room) { parts.push(value.subarray(0, room)); total = cap; } // strict cap
+      else { parts.push(value); total += value.byteLength; }
+    }
+    try { await reader.cancel(); } catch { /* ignore */ }
+  } catch { /* network error mid-read: return what we have */ }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+  return new TextDecoder('utf-8', { fatal: false }).decode(buf);
+}
+
 async function browserGet(url: string, signal?: AbortSignal): Promise<{ status: number; body: string; finalUrl: string }> {
   try {
     const r = await timedFetch(url, { headers: { Accept: 'application/json, text/html' } }, 20000, signal);
-    return { status: r.status, body: await r.text(), finalUrl: r.url || url };
+    return { status: r.status, body: await cappedText(r), finalUrl: r.url || url };
   } catch (e) {
     if (signal?.aborted) throw e; // Stop pressed — don't continue via the uncancellable native path
     const r = await http.get(url, { 'User-Agent': UA });
@@ -872,7 +899,7 @@ async function browserPostForm(url: string, body: string, signal?: AbortSignal):
       20000,
       signal,
     );
-    return { status: r.status, body: await r.text() };
+    return { status: r.status, body: await cappedText(r) };
   } catch (e) {
     if (signal?.aborted) throw e; // Stop pressed — don't continue via the uncancellable native path
     const r = await http.request({

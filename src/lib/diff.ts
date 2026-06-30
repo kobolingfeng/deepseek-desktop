@@ -74,7 +74,8 @@ export function extractChanges(messages: Message[]): FileChange[] {
       else if (tc.name === 'write_file') diff = lineDiff('', String(a.content ?? ''));
       out.push({
         id: tc.id,
-        path: a.path || '(unknown)',
+        // Guard: malformed/streamed args can make a.path a non-string → later .split() would crash.
+        path: typeof a.path === 'string' && a.path ? a.path : '(unknown)',
         abs: ok && res ? absFromResult(res.content) : undefined,
         kind:
           tc.name === 'edit_file'

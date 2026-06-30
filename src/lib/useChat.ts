@@ -530,10 +530,15 @@ export function useChat() {
     checkpointsRef.current.delete(id); // drop its undo stack (no UI entry once gone)
     unreadIdsRef.current.delete(id); // don't leave a stuck taskbar badge
     // Prune the deleted id from back/forward history so nav never lands on a dead conversation.
+    // Re-anchor the index to the CURRENT active id's position (filtering can shift earlier indices,
+    // which would otherwise leave navIdx pointing at a different conversation than activeId).
+    const newActive = activeId === id ? (convsRef.current[0]?.id ?? null) : activeId;
     navStackRef.current = navStackRef.current.filter((x) => x !== id);
-    navIdxRef.current = Math.max(0, Math.min(navIdxRef.current, navStackRef.current.length - 1));
+    const anchored = newActive ? navStackRef.current.lastIndexOf(newActive) : -1;
+    navIdxRef.current = anchored >= 0 ? anchored : Math.max(0, navStackRef.current.length - 1);
+    navigatingRef.current = false; // no navigation is in flight after a delete
     setNavState({ back: navIdxRef.current > 0, fwd: navIdxRef.current < navStackRef.current.length - 1 });
-    if (activeId === id) setActiveId(convsRef.current[0]?.id ?? null);
+    if (activeId === id) setActiveId(newActive);
     persist();
     bumpNow();
   }
@@ -889,37 +894,43 @@ export function useChat() {
     }
   }
 
-  /** Snapshot a file's prior content into the turn's checkpoint, the first time the turn
-   *  edits it. Records existed:false for new files (revert = delete). */
-  async function snapshotEdit(cp: Checkpoint, tc: { arguments: string }, cwd: string) {
+  /** Capture a file's prior content WITHOUT committing it to the checkpoint, so the caller can
+   *  commit only after the edit actually succeeds (a stopped/failed edit must not leave a phantom
+   *  checkpoint entry — undo of a phantom new-file entry could delete an unrelated file). Returns
+   *  null when there is nothing to snapshot (already captured this turn / unparsable / unreadable). */
+  async function captureEdit(
+    tc: { arguments: string },
+    cwd: string,
+    have: Map<string, FileSnapshot>,
+  ): Promise<FileSnapshot | null> {
     let path: string | undefined;
     try {
       path = JSON.parse(tc.arguments || '{}').path;
     } catch {
-      /* unparsable args — nothing to snapshot */
+      return null; // unparsable args — nothing to snapshot
     }
-    if (!path) return;
+    if (!path) return null;
     const abs = resolvePath(path, cwd);
-    if (!abs || cp.files.has(abs)) return;
+    if (!abs || have.has(abs)) return null; // keep the OLDEST snapshot of a file edited twice in a turn
     try {
-      if (!(await fs.exists(abs))) {
-        cp.files.set(abs, { path: abs, existed: false });
-        return;
-      }
-      if (isOfficeFile(abs)) {
-        cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
-      } else {
-        try {
-          cp.files.set(abs, { path: abs, existed: true, text: await fs.readTextFile(abs) });
-        } catch {
-          // Unreadable as text (binary / odd encoding) → snapshot raw bytes so Undo can still
-          // restore it, instead of letting the edit silently bypass the checkpoint.
-          cp.files.set(abs, { path: abs, existed: true, b64: await readBytesBase64(abs) });
-        }
+      if (!(await fs.exists(abs))) return { path: abs, existed: false };
+      if (isOfficeFile(abs)) return { path: abs, existed: true, b64: await readBytesBase64(abs) };
+      try {
+        return { path: abs, existed: true, text: await fs.readTextFile(abs) };
+      } catch {
+        // Unreadable as text (binary / odd encoding) → snapshot raw bytes so Undo can still restore it.
+        return { path: abs, existed: true, b64: await readBytesBase64(abs) };
       }
     } catch {
-      /* truly unsnapshottable (e.g. locked / too big) — skip; revert will skip it too */
+      return null; // truly unsnapshottable (e.g. locked / too big) — revert will skip it too
     }
+  }
+
+  /** Snapshot a file's prior content into the turn's checkpoint, the first time the turn edits it
+   *  (commits immediately — used by the sub-agent path). */
+  async function snapshotEdit(cp: Checkpoint, tc: { arguments: string }, cwd: string) {
+    const e = await captureEdit(tc, cwd, cp.files);
+    if (e) cp.files.set(e.path, e);
   }
 
   /** Pop the most recent checkpoint for a conversation and restore its files. */
@@ -977,7 +988,9 @@ export function useChat() {
     };
     const subTools = TOOL_SCHEMAS.filter((s) => {
       const n = (s.function as { name: string }).name;
-      return !['run_subagent', ...SELF_MGMT_TOOLS].includes(n) && toolPerm(n, settingsRef.current) !== 'off';
+      // Use the turn's snapshot (baseCfg), not live settings — a mid-turn project switch must not
+      // change which tools this sub-agent may use.
+      return !['run_subagent', ...SELF_MGMT_TOOLS].includes(n) && toolPerm(n, baseCfg) !== 'off';
     });
     const msgs: Message[] = [{ id: newId('u'), role: 'user', content: prompt, createdAt: Date.now() }];
     let last = '';
@@ -995,7 +1008,7 @@ export function useChat() {
         let out = '';
         let isErr = false;
         try {
-          const perm = toolPerm(sub.name, settingsRef.current);
+          const perm = toolPerm(sub.name, baseCfg);
           if (perm === 'off') {
             out = 'This tool is disabled by the user.';
             isErr = true;
@@ -1116,7 +1129,9 @@ export function useChat() {
 
         const useTools = modelSupportsTools(turnModel);
         let activeTools = TOOL_SCHEMAS.filter(
-          (s) => toolPerm((s.function as { name: string }).name, settingsRef.current) !== 'off',
+          // Use the turn's snapshot (cfg), NOT live settings — otherwise switching conversation/project
+          // mid-turn would advertise/execute tools under the OTHER conversation's permissions.
+          (s) => toolPerm((s.function as { name: string }).name, cfg) !== 'off',
         );
         if (mode === 'plan') {
           // Plan mode is read-only: keep ONLY the read-only/research allowlist (excludes run_subagent,
@@ -1224,10 +1239,16 @@ export function useChat() {
           // Honor an explicit ask/off permission on the intercepted self-management tools (they run
           // before the generic permission gate below). add_mcp_server self-approves in its branch.
           let gated = false;
-          if (SELF_MGMT_TOOLS.includes(tc.name)) {
+          if (mode === 'plan' && !PLAN_TOOLS.includes(tc.name)) {
+            // Execution-time plan-mode guard: even if the provider emits a tool that wasn't advertised
+            // (plan only advertises PLAN_TOOLS), never RUN a mutating/spawning tool in plan mode.
+            out = `${tc.name} is not available in plan mode (read-only).`;
+            isErr = true;
+            gated = true;
+          } else if (SELF_MGMT_TOOLS.includes(tc.name)) {
             // Gate purely by the resolved permission (honors an explicit Ask even in Full mode).
             // add_mcp_server resolves to 'ask' in Read/Auto via CONFIRM_IN_AUTO, 'allow' in Full.
-            const perm = toolPerm(tc.name, settingsRef.current);
+            const perm = toolPerm(tc.name, cfg);
             if (perm === 'off') {
               out = `${tc.name} is disabled in settings.`;
               isErr = true;
@@ -1271,6 +1292,7 @@ export function useChat() {
                 } else {
                   const file = effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md';
                   out = await withFileLock(async () => {
+                    if (turn.stopped) throw new Error('Stopped.'); // Stop landed while queued behind the lock
                     let prev = '';
                     try {
                       if (await fs.exists(file)) prev = await fs.readTextFile(file);
@@ -1278,6 +1300,7 @@ export function useChat() {
                       /* new file */
                     }
                     if (prev.split('\n').some((l) => l.trim() === line)) return 'Already in project memory: ' + content;
+                    if (turn.stopped) throw new Error('Stopped.');
                     const next = prev.trim() ? prev.replace(/\s*$/, '') + '\n' + line + '\n' : '# Project memory\n\n' + line + '\n';
                     await fs.writeTextFile(file, next);
                     return 'Remembered (project): ' + content;
@@ -1312,6 +1335,7 @@ export function useChat() {
               } else if (scope === 'project') {
                 const file = effCwd ? effCwd.replace(/[\\/]+$/, '') + '\\.deepseek.md' : '';
                 out = await withFileLock(async () => {
+                  if (turn.stopped) throw new Error('Stopped.'); // Stop landed while queued behind the lock
                   let prev = '';
                   try {
                     if (file && (await fs.exists(file))) prev = await fs.readTextFile(file);
@@ -1321,6 +1345,7 @@ export function useChat() {
                   const lines = prev.split('\n');
                   const kept = lines.filter((l) => !(l.trim().startsWith('-') && l.toLowerCase().includes(query)));
                   const removed = lines.length - kept.length;
+                  if (turn.stopped) throw new Error('Stopped.');
                   if (removed && file) await fs.writeTextFile(file, kept.join('\n'));
                   return removed
                     ? `Forgot ${removed} project memory entr${removed === 1 ? 'y' : 'ies'}.`
@@ -1430,7 +1455,7 @@ export function useChat() {
               out = `MCP server not connected for ${tc.name}.`;
               isErr = true;
             } else {
-              const full = settingsRef.current.approvalMode === 'full';
+              const full = cfg.approvalMode === 'full';
               const approved = full ? true : await requestApproval(conv.id, tc);
               if (!approved || turn.stopped) {
                 out = turn.stopped ? 'Stopped.' : 'User denied this action.';
@@ -1462,7 +1487,7 @@ export function useChat() {
             out = `Unknown tool: ${tc.name}`;
             isErr = true;
           } else {
-            const perm = toolPerm(tc.name, settingsRef.current);
+            const perm = toolPerm(tc.name, cfg);
             let approved = true;
             if (perm === 'ask') approved = await requestApproval(conv.id, tc);
             if (perm === 'off') {
@@ -1492,9 +1517,14 @@ export function useChat() {
                     // Throw (not return) so a Stop-while-queued is recorded as an error, not a
                     // successful edit (which would set producedEdits + open the changes panel).
                     if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.');
-                    await snapshotEdit(checkpoint, tc, effCwd);
-                    if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.'); // Stop during snapshot
-                    return executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                    // Capture pre-edit state, then re-check abort BEFORE writing (so a Stop during the
+                    // snapshot read doesn't mutate). Commit the snapshot to the checkpoint ONLY after the
+                    // write succeeds → a stopped/failed edit leaves no phantom undo entry.
+                    const snap = await captureEdit(tc, effCwd, checkpoint.files);
+                    if (turn.stopped || ctrl.signal.aborted) throw new Error('Stopped.');
+                    const res = await executeTool(tc, toolCfg, { cancelId, signal: ctrl.signal });
+                    if (snap) checkpoint.files.set(snap.path, snap);
+                    return res;
                   });
                 } else if (tc.name === 'run_subagent') {
                   out = await runSubAgent(tc, toolCfg, effCwd, turnModel, conv.id, checkpoint, ctrl.signal);

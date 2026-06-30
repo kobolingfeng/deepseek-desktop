@@ -54,7 +54,7 @@ function decodeXml(s: string): string {
 
 async function readExcel(p: string): Promise<string> {
   const b64 = await readBytesBase64(p);
-  const wb = XLSX.read(b64, { type: 'base64' });
+  const wb = XLSX.read(b64, { type: 'base64', sheetRows: 5000 }); // cap rows: bound SheetJS expansion on a zip-bomb xlsx
   const parts: string[] = [];
   for (const name of wb.SheetNames) {
     const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { blankrows: false }).trim();
@@ -237,9 +237,11 @@ async function unzipEntries(file: string, likeGlob: string): Promise<{ name: str
     'Add-Type -AssemblyName System.IO.Compression.FileSystem;',
     `$zip=[IO.Compression.ZipFile]::OpenRead(${psQuote(file)});`,
     `$es=$zip.Entries | Where-Object { ($_.FullName -replace '\\\\','/') -like ${psQuote(likeGlob)} } | Sort-Object FullName;`,
-    // Skip any entry whose UNCOMPRESSED size is huge (zip-bomb defense — the file-size cap can't
-    // see expansion). 64 MB/entry is far above any real OOXML part.
-    `$o=foreach($e in $es){ if($e.Length -gt 67108864){ continue }; $sr=New-Object IO.StreamReader($e.Open()); $t=$sr.ReadToEnd(); $sr.Close(); "<<<E:"+($e.FullName -replace '\\\\','/')+">>>"+$t };`,
+    // Zip-bomb defense (the compressed file-size cap can't see expansion): skip any single entry
+    // over 64 MB uncompressed AND stop once the AGGREGATE uncompressed size or entry COUNT is huge
+    // (many small entries can still add up). Limits: 128 MB total / 5000 entries.
+    '$tot=0; $n=0;',
+    `$o=foreach($e in $es){ if($e.Length -gt 67108864){ continue }; $tot+=$e.Length; $n++; if($tot -gt 134217728 -or $n -gt 5000){ break }; $sr=New-Object IO.StreamReader($e.Open()); $t=$sr.ReadToEnd(); $sr.Close(); "<<<E:"+($e.FullName -replace '\\\\','/')+">>>"+$t };`,
     '$zip.Dispose();',
     '[Console]::Out.Write(($o -join ""))',
   ].join(' ');
@@ -341,7 +343,7 @@ export async function officePreviewHtml(p: string): Promise<string> {
   }
   if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
     const b64 = await readBytesBase64(p);
-    const wb = XLSX.read(b64, { type: 'base64' });
+    const wb = XLSX.read(b64, { type: 'base64', sheetRows: 5000 }); // cap rows: bound SheetJS expansion
     const names = wb.SheetNames;
     const tableFor = (n: string) => XLSX.utils.sheet_to_html(wb.Sheets[n], { editable: false });
     if (names.length <= 1) {

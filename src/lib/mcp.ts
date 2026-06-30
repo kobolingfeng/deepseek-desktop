@@ -19,6 +19,32 @@ export interface McpServerState {
 
 let nextId = 1;
 
+// Read a fetch body but stop after `cap` bytes so a hostile/buggy MCP server can't OOM the renderer.
+async function readCappedBody(resp: Response, cap: number): Promise<string> {
+  const reader = resp.body?.getReader();
+  if (!reader) {
+    const t = await resp.text();
+    return t.length > cap ? t.slice(0, cap) : t;
+  }
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < cap) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const room = cap - total;
+      if (value.byteLength > room) { parts.push(value.subarray(0, room)); total = cap; } // strict cap
+      else { parts.push(value); total += value.byteLength; }
+    }
+    try { await reader.cancel(); } catch { /* ignore */ }
+  } catch { /* network error mid-read: return what we have */ }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { buf.set(p, off); off += p.byteLength; }
+  return new TextDecoder('utf-8', { fatal: false }).decode(buf);
+}
+
 async function rpc(
   url: string,
   sessionId: string | undefined,
@@ -48,7 +74,7 @@ async function rpc(
     });
     const newSession = resp.headers.get('Mcp-Session-Id') || undefined;
     const ct = resp.headers.get('Content-Type') || '';
-    const text = await resp.text();
+    const text = await readCappedBody(resp, 16 << 20); // bound: a hostile MCP server can't OOM us
     let json: any;
     if (ct.includes('text/event-stream')) {
       for (const line of text.split('\n')) {
@@ -138,17 +164,17 @@ export function mcpToolSchemas(servers: McpServerState[]): any[] {
   for (const s of servers) {
     if (!s.ok) continue;
     for (const tool of s.tools) {
-      out.push({
-        type: 'function',
-        function: {
-          name: `mcp__${s.name}__${tool.name}`,
-          description: tool.description || '',
-          parameters:
-            tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema)
-              ? tool.inputSchema
-              : { type: 'object', properties: {} },
-        },
-      });
+      const name = `mcp__${s.name}__${tool.name}`;
+      // Skip tools whose namespaced name isn't a valid OpenAI function name — otherwise one
+      // bad server-supplied tool name 400s EVERY tool-enabled request.
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) continue;
+      // Cap the server-controlled description + schema: bounds prompt-injection surface and tokens.
+      const fn: any = { name, description: String(tool.description || '').slice(0, 4096) };
+      const schema = tool.inputSchema;
+      const schemaOk =
+        schema && typeof schema === 'object' && !Array.isArray(schema) && JSON.stringify(schema).length <= (32 << 10);
+      fn.parameters = schemaOk ? schema : { type: 'object', properties: {} };
+      out.push({ type: 'function', function: fn });
     }
   }
   return out;

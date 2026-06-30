@@ -13,16 +13,19 @@ import type { Message as Msg } from '../lib/types';
 
 // Resolve a (possibly relative) tool path to an absolute Windows path, and the
 // reverse — its path relative to the working dir (mirrors Markdown.tsx).
-function resolveAbs(p: string): string {
-  if (/^file:/i.test(p)) p = decodeURIComponent(p.replace(/^file:\/*/i, ''));
+function resolveAbs(p: string, cwd?: string): string {
+  if (/^file:/i.test(p)) {
+    const stripped = p.replace(/^file:\/*/i, '');
+    try { p = decodeURIComponent(stripped); } catch { p = stripped; } // malformed %-escape must not crash render
+  }
   if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return p.replace(/\//g, '\\');
-  const wd = loadSettings().workingDir;
+  const wd = cwd || loadSettings().workingDir; // prefer the conversation's working dir
   return (wd ? wd.replace(/[\\/]+$/, '') + '\\' + p.replace(/^[\\/]+/, '') : p).replace(/\//g, '\\');
 }
-function relPath(p: string): string {
-  const wd = loadSettings().workingDir;
+function relPath(p: string, cwd?: string): string {
+  const wd = cwd || loadSettings().workingDir;
   if (!wd) return p.replace(/\//g, '\\');
-  const abs = resolveAbs(p);
+  const abs = resolveAbs(p, cwd);
   const base = wd.replace(/[\\/]+$/, '').replace(/\//g, '\\');
   return abs.toLowerCase().startsWith(base.toLowerCase() + '\\') ? abs.slice(base.length + 1) : p;
 }
@@ -135,15 +138,15 @@ function MessageActions({ content, meta }: { content: string; meta?: string }) {
 
 // One "Edited <file> +A -D" row that expands the inline diff on click
 // (replaces the separate ✎ write/edit tool row).
-function EditedFileRow({ change }: { change: FileChange }) {
+function EditedFileRow({ change, cwd }: { change: FileChange; cwd?: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const name = change.path.split(/[\\/]/).pop() || change.path;
   const hasDiff = change.diff.length > 0;
 
   // Prefer the absolute path the tool actually wrote to (survives relative paths and
-  // per-conversation working dirs); fall back to resolving against the global dir.
-  const fileAbs = change.abs || resolveAbs(change.path);
+  // per-conversation working dirs); fall back to resolving against the conversation's dir.
+  const fileAbs = change.abs || resolveAbs(change.path, cwd);
   const openFile = (e: React.MouseEvent) => {
     e.stopPropagation();
     openPathSafely(fileAbs, () => notification.show(t('linkExecReveal'), fileAbs).catch(() => {}));
@@ -158,7 +161,7 @@ function EditedFileRow({ change }: { change: FileChange }) {
       { label: t('ctxOpenFolder'), onClick: () => shell.open(parent).catch(() => {}) },
       { label: t('ctxReveal'), onClick: () => shell.execute('explorer.exe', ['/select,', abs]).catch(() => {}) },
       { label: t('ctxCopyPath'), onClick: () => clipboard.writeText(abs).catch(() => {}) },
-      { label: t('ctxCopyRelPath'), onClick: () => clipboard.writeText(relPath(change.path)).catch(() => {}) },
+      { label: t('ctxCopyRelPath'), onClick: () => clipboard.writeText(relPath(change.path, cwd)).catch(() => {}) },
       { label: t('ctxCopyFilename'), onClick: () => clipboard.writeText(name).catch(() => {}) },
     ]);
   };
@@ -262,7 +265,7 @@ export function Message({
         {changes.length > 0 && (
           <div className="edited-files">
             {changes.map((c, i) => (
-              <EditedFileRow key={i} change={c} />
+              <EditedFileRow key={i} change={c} cwd={cwd} />
             ))}
           </div>
         )}

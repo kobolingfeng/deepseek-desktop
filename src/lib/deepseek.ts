@@ -191,6 +191,7 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     if (Array.isArray(d.tool_calls)) {
       for (const tcd of d.tool_calls) {
         const idx = typeof tcd.index === 'number' ? tcd.index : 0;
+        if (!Number.isInteger(idx) || idx < 0 || idx >= 256) continue; // bound slots: no sparse-array DoS
         let slot = toolCalls[idx];
         if (!slot) {
           slot = { id: tcd.id || '', name: '', arguments: '' };
@@ -198,7 +199,11 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
         }
         if (tcd.id) slot.id = tcd.id;
         if (tcd.function?.name) slot.name = tcd.function.name;
-        if (typeof tcd.function?.arguments === 'string') slot.arguments += tcd.function.arguments;
+        // Cap accumulated args so a hostile stream can't grow one tool call unbounded (OOM).
+        if (typeof tcd.function?.arguments === 'string') {
+          const room = (1 << 20) - slot.arguments.length;
+          if (room > 0) slot.arguments += tcd.function.arguments.slice(0, room);
+        }
       }
       cb.onToolCalls?.(toolCalls.filter(Boolean).map((tc) => ({ ...tc })));
     }
@@ -229,7 +234,9 @@ export function streamChat(req: ChatRequest, cb: StreamCallbacks = {}): StreamHa
     return {
       content,
       reasoning,
-      toolCalls: toolCalls.filter(Boolean),
+      // Drop incomplete tool calls (empty id/name from malformed deltas) — sending or persisting
+      // them 400s the next request and poisons history before reload cleanup can run.
+      toolCalls: toolCalls.filter((t) => !!t && !!t.id && !!t.name),
       finishReason: cancelled ? finishReason ?? 'stop' : finishReason,
       status,
       cancelled,
